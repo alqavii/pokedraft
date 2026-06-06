@@ -983,7 +983,7 @@ function renderBoard(){
     const owner=taken!==undefined?S.teams[taken]:null;
     return `<tr class="${owner?'drafted-row':''}">
       <td>${sprImg(p.pid,"spr")}</td>
-      <td><div class="cell-mon"><div><div class="nm">${p.name} ${p.champions?'<span class="champ-flag">CHMP</span>':''}</div><div class="dx">#${String(p.num).padStart(4,'0')}</div></div></div></td>
+      <td><div class="cell-mon"><div><div class="nm">${p.name}</div><div class="dx">#${String(p.num).padStart(4,'0')}</div></div></div></td>
       <td><span class="gen-badge">Gen ${p.gen}</span></td>
       <td><span class="tier-badge tier-${p.tier.toLowerCase()}">${p.tier}</span>${p.hasBuild?'<span class="build-badge">◆ Build</span>':''}</td>
       <td>${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join(" ")}</td>
@@ -1055,7 +1055,7 @@ function renderPickGrid(){
     const onclick=(!owner&&!unaffordable&&!S.ended)?`onclick="draftPick('${p.id}')"`:"";
     return `<div class="pcard ${cls}" ${onclick}>
       <div class="top">
-        <span class="dx">#${String(p.num).padStart(4,'0')} ${p.champions?'· CHMP':''}</span>
+        <span class="dx">#${String(p.num).padStart(4,'0')}</span>
         <span class="gen-badge">G${p.gen}</span>
         <span class="cost-badge">${p.cost}</span>
       </div>
@@ -1139,7 +1139,7 @@ function openModal(id){
     <div class="mhead">
       ${sprImg(p.pid,"")}
       <div>
-        <div class="dx" style="font-family:'Space Mono'">#${String(p.num).padStart(4,'0')} · Gen ${p.gen} ${p.champions?'· Pokémon Champions':''}</div>
+        <div class="dx" style="font-family:'Space Mono'">#${String(p.num).padStart(4,'0')} · Gen ${p.gen}</div>
         <h2 style="margin:2px 0 8px">${p.name}</h2>
         <div>${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join(" ")}
         <span class="cost-badge" style="margin-left:8px">Cost ${p.cost}</span></div>
@@ -1161,8 +1161,6 @@ function openModal(id){
         <span id="modal-tier-desc" style="font-size:12px;color:var(--muted);margin-left:8px">${getTierDesc(p.tier)}</span></div>
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:14px">Meta Build</label>
       <div id="smogon-set-box" class="smogon-loading">Fetching Smogon set…</div>
-      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:14px">Notable Moves</label>
-      <div class="moves-list" style="margin-bottom:14px">${p.moves.length>0?p.moves.map(m=>`<span class="move-chip">${m}</span>`).join(''):'<span style="color:var(--muted);font-size:13px">No notable moves listed</span>'}</div>
     </div>
     <div class="modal-foot">
       ${owner?`<div class="pill" style="color:var(--accent2)">● Drafted by ${owner.name}</div>`:
