@@ -318,6 +318,14 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
 .toast.win{border-color:var(--good);color:var(--good)}
 .toast.bad{border-color:var(--accent2);color:var(--accent2)}
 
+.confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.18s}
+.confirm-overlay.show{opacity:1;pointer-events:all}
+.confirm-box{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 28px;max-width:340px;width:90%;box-shadow:var(--shadow);transform:scale(.93);transition:.18s}
+.confirm-overlay.show .confirm-box{transform:scale(1)}
+.confirm-box p{margin:0 0 20px;font-size:15px;font-weight:600;line-height:1.45;color:var(--fg)}
+.confirm-box .confirm-btns{display:flex;gap:10px;justify-content:flex-end}
+.confirm-box .confirm-btns button{min-width:80px}
+
 .hidden{display:none!important}
 .section-gap{margin-top:34px}
 .source-note{font-size:12px;color:var(--faint);margin-top:30px;border-top:1px solid var(--line);padding-top:16px}
@@ -392,7 +400,7 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
       </div>
       <div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap">
         <button class="btn" onclick="startDraft()">Start the draft →</button>
-        <button class="btn ghost" onclick="resetAll()">Reset everything</button>
+        <button class="btn ghost" onclick="confirmDialog('Wipe the whole league and start fresh? All picks will be lost.',resetAll)">Reset everything</button>
       </div>
     </div>
 
@@ -476,7 +484,8 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
           </div>
         </div>
         <button class="btn ghost sm" onclick="undoPick()" id="undoBtn">↶ Undo</button>
-        <button class="btn danger sm" onclick="if(confirm('End the draft now?'))endDraft()">End draft</button>
+        <button class="btn danger sm" onclick="confirmDialog('End the draft now? This locks in all picks.',endDraft)">End draft</button>
+        <button class="btn ghost sm" style="margin-left:4px" onclick="confirmDialog('Reset the entire draft and wipe all picks? This cannot be undone.',resetAll)">Full Reset</button>
       </div>
 
       <div class="teams-strip" id="teamsStrip"></div>
@@ -582,6 +591,15 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
   <div class="modal" id="modal"></div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="confirm-overlay" id="confirmOverlay" onclick="if(event.target===this)closeConfirm()">
+  <div class="confirm-box">
+    <p id="confirmMsg"></p>
+    <div class="confirm-btns">
+      <button class="btn ghost sm" onclick="closeConfirm()">Cancel</button>
+      <button class="btn danger sm" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /* ============ DATA ============ */
@@ -847,7 +865,7 @@ function freshState(){
 }
 function save(){localStorage.setItem("draftArena", JSON.stringify(S));}
 function load(){try{return JSON.parse(localStorage.getItem("draftArena"))}catch(e){return null}}
-function resetAll(){if(confirm("Wipe the whole league and start fresh?")){localStorage.removeItem("draftArena");S=freshState();syncSetupInputs();go('home');toast("League reset");}}
+function resetAll(){localStorage.removeItem("draftArena");S=freshState();syncSetupInputs();go('home');toast("League reset");}
 
 /* ============ NAV ============ */
 function go(v){
@@ -1302,6 +1320,16 @@ function toast(msg,kind){
   const el=document.getElementById("toast");el.textContent=msg;
   el.className="toast show"+(kind?" "+kind:"");
   clearTimeout(toastT);toastT=setTimeout(()=>el.className="toast",2400);
+}
+
+/* ============ CONFIRM DIALOG ============ */
+function confirmDialog(msg,cb){
+  document.getElementById("confirmMsg").textContent=msg;
+  document.getElementById("confirmOkBtn").onclick=()=>{closeConfirm();cb();};
+  document.getElementById("confirmOverlay").classList.add("show");
+}
+function closeConfirm(){
+  document.getElementById("confirmOverlay").classList.remove("show");
 }
 
 /* ============ EXPORT / IMPORT ============ */
