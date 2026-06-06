@@ -152,6 +152,41 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
 .sug-reasons ul{font-size:11px;color:var(--muted);line-height:1.5;padding-left:16px;margin:0}
 @media(max-width:860px){.suggestion-card{flex-direction:column}.sug-reasons{min-width:auto;width:100%}}
 
+/* Export / import bar */
+.io-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+
+/* Tournament seeds */
+.seeds-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-bottom:28px}
+.seed-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 16px;
+  display:flex;align-items:center;gap:13px}
+.seed-num{font-size:26px;font-weight:800;font-family:'Space Mono',monospace;color:var(--accent);min-width:42px;text-align:center}
+.seed-nm{font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px}
+.seed-pts{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* Tournament bracket */
+.bracket-outer{overflow-x:auto;padding:8px 0 20px;position:relative}
+.bracket-main{display:flex;align-items:stretch;gap:0;min-width:fit-content;position:relative}
+.b-round{display:flex;flex-direction:column;min-width:192px;padding-right:44px}
+.b-round:last-child{padding-right:0}
+.b-round-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;
+  color:var(--muted);text-align:center;padding-bottom:10px}
+.b-matches{flex:1;display:flex;flex-direction:column;min-height:220px}
+.b-match{flex:1;display:flex;flex-direction:column;justify-content:center;gap:3px}
+.b-slot{background:var(--panel);border:1.5px solid var(--line);border-radius:9px;
+  padding:9px 12px;transition:.15s;display:flex;align-items:center;gap:8px;
+  font-size:13px;font-weight:600;min-height:40px;white-space:nowrap}
+.b-slot.pick{cursor:pointer}
+.b-slot.pick:hover{border-color:var(--accent);transform:translateX(2px)}
+.b-slot.winner{border-color:var(--good);background:rgba(70,229,160,.06)}
+.b-slot.loser{opacity:.32;text-decoration:line-through}
+.b-slot.tbd{color:var(--faint);border-style:dashed;font-style:italic;font-size:12px;cursor:default}
+.b-slot.bye{color:var(--faint);border-style:dashed;opacity:.4;cursor:default}
+.b-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;display:inline-block}
+.b-champ{text-align:center;padding:28px 20px;border:2px solid var(--accent);border-radius:14px;
+  background:linear-gradient(135deg,rgba(255,210,63,.07),transparent);margin-top:24px;
+  animation:fadeUp .4s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
 /* Type filter chips */
 .type-chip{color:#0c0e16 !important;font-weight:700}
 .type-chip.on{box-shadow:0 0 0 2px var(--accent)}
@@ -301,6 +336,7 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
       <button data-view="board">Draft Board</button>
       <button data-view="draft">Live Draft</button>
       <button data-view="teams">Teams</button>
+      <button data-view="tournament">Tournament</button>
     </nav>
   </div>
 </header>
@@ -495,7 +531,45 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
     <span class="kicker">Rosters</span>
     <h1>Teams</h1>
     <p class="sub" style="margin-bottom:18px">Live rosters as they fill up during the draft.</p>
+    <div class="io-bar">
+      <button class="btn ghost sm" onclick="exportDraft()">Export Draft ↓</button>
+      <label class="btn ghost sm" style="cursor:pointer">Import Draft ↑
+        <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importDraftFromFile(this)">
+      </label>
+    </div>
     <div id="teamsFull"></div>
+  </section>
+
+  <!-- TOURNAMENT -->
+  <section id="view-tournament" class="hidden">
+    <span class="kicker">Playoffs</span>
+    <h1 style="margin-bottom:8px">Tournament</h1>
+    <p class="sub" style="margin-bottom:20px">Generate seeds from the draft rosters and run a single-elimination bracket. Click a team in any match to advance them.</p>
+    <div class="io-bar">
+      <button class="btn sm" onclick="useLiveDraft()">Use Current Draft</button>
+      <label class="btn ghost sm" style="cursor:pointer">Import Draft File
+        <input type="file" id="tourFileInput" accept=".json" style="display:none" onchange="loadTournamentFile(this)">
+      </label>
+    </div>
+    <div id="tournament-content" style="display:none">
+      <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:12px">
+        <h2>Seedings</h2>
+        <span class="sub" style="font-size:12px">ranked by roster strength</span>
+      </div>
+      <div id="seeds-grid" class="seeds-grid"></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+        <h2>Bracket</h2>
+        <button class="btn ghost sm" onclick="resetBracket()">Reset results</button>
+      </div>
+      <div class="bracket-outer">
+        <div id="bracket-main" class="bracket-main"></div>
+      </div>
+      <div id="champion-box" style="display:none" class="b-champ">
+        <div class="kicker" style="margin-bottom:8px">Champion</div>
+        <h2 id="champion-name" style="font-size:38px;color:var(--accent);margin-bottom:4px"></h2>
+        <p class="sub" id="champion-sub" style="margin:0 auto"></p>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -777,10 +851,11 @@ function resetAll(){if(confirm("Wipe the whole league and start fresh?")){localS
 /* ============ NAV ============ */
 function go(v){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
-  ["home","board","draft","teams"].forEach(x=>document.getElementById("view-"+x).classList.toggle("hidden",x!==v));
+  ["home","board","draft","teams","tournament"].forEach(x=>document.getElementById("view-"+x).classList.toggle("hidden",x!==v));
   if(v==="board")renderBoard();
   if(v==="draft")renderDraft();
   if(v==="teams")renderTeamsFull();
+  if(v==="tournament"&&T.ready)renderTournament();
   window.scrollTo(0,0);
 }
 document.getElementById("nav").addEventListener("click",e=>{if(e.target.dataset.view)go(e.target.dataset.view)});
@@ -1205,6 +1280,229 @@ function toast(msg,kind){
   const el=document.getElementById("toast");el.textContent=msg;
   el.className="toast show"+(kind?" "+kind:"");
   clearTimeout(toastT);toastT=setTimeout(()=>el.className="toast",2400);
+}
+
+/* ============ EXPORT / IMPORT ============ */
+function exportDraft(){
+  const blob=new Blob([JSON.stringify({v:1,exported:new Date().toISOString(),state:S},null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`pokedraft-${Date.now()}.json`;
+  a.click();URL.revokeObjectURL(a.href);
+  toast('Draft exported','win');
+}
+function importDraftFromFile(input){
+  const file=input.files[0];if(!file)return;
+  const fr=new FileReader();
+  fr.onload=e=>{
+    try{
+      const d=JSON.parse(e.target.result);
+      if(!d.state?.teams)throw 0;
+      Object.assign(S,d.state);
+      syncSetupInputs();renderDraft();go('draft');
+      toast('Draft imported','win');
+    }catch{toast('Invalid draft file','warn');}
+    input.value='';
+  };
+  fr.readAsText(file);
+}
+
+/* ============ TOURNAMENT ============ */
+let T={ready:false,teams:[],rounds:[],sourceState:null};
+
+function _teamStrength(team){
+  const pts={AG:20,Uber:16,OU:12,UU:9,RU:7,NU:5,PU:3,NFE:2,Untiered:1};
+  return Math.round(team.roster.reduce((s,id)=>{
+    const p=POOL_BY_ID[id];
+    return p?s+p.bst*0.3+(pts[p.tier]||1)*9:s;
+  },0));
+}
+function _nextPow2(n){let p=1;while(p<n)p*=2;return p;}
+
+function useLiveDraft(){
+  if(!S.started||!S.teams.some(t=>t.roster.length>0)){
+    toast('No draft to load — start a draft first','warn');return;
+  }
+  initTournament(S);
+}
+function loadTournamentFile(input){
+  const file=input.files[0];if(!file)return;
+  const fr=new FileReader();
+  fr.onload=e=>{
+    try{
+      const d=JSON.parse(e.target.result);
+      if(!d.state?.teams)throw 0;
+      initTournament(d.state);
+      toast('Draft loaded into tournament','win');
+    }catch{toast('Invalid draft file','warn');}
+    input.value='';
+  };
+  fr.readAsText(file);
+}
+
+function initTournament(src){
+  const active=src.teams.filter(t=>t.roster&&t.roster.length>0);
+  if(active.length<2){toast('Need at least 2 teams with Pokémon','warn');return;}
+  const sorted=[...active].sort((a,b)=>_teamStrength(b)-_teamStrength(a));
+  const size=_nextPow2(sorted.length);
+  const padded=[...sorted,...Array(size-sorted.length).fill(null)];
+
+  T.sourceState=src;
+  T.teams=sorted.map((t,i)=>({name:t.name,color:t.color,roster:t.roster,seed:i+1,strength:_teamStrength(t)}));
+
+  // Round 1: seed 1 vs size, seed 2 vs size-1, etc.
+  const r1=Array.from({length:size/2},(_,i)=>{
+    const a=padded[i],b=padded[size-1-i];
+    return{a:a?.name||null,aCol:a?.color||'',b:b?.name||null,bCol:b?.color||'',winner:null};
+  });
+  // Give byes (no opponent) automatic wins
+  r1.forEach(m=>{if(m.a&&!m.b)m.winner='a';if(m.b&&!m.a)m.winner='b';});
+
+  // Build empty subsequent rounds
+  const numRounds=Math.log2(size);
+  T.rounds=[r1];
+  for(let r=1;r<numRounds;r++){
+    T.rounds.push(Array.from({length:T.rounds[r-1].length/2},()=>({a:null,aCol:'',b:null,bCol:'',winner:null})));
+  }
+
+  // Propagate any auto-byes
+  for(let r=0;r<T.rounds.length-1;r++)T.rounds[r].forEach((_,m)=>_propagate(r,m));
+
+  T.ready=true;
+  go('tournament');
+  renderTournament();
+}
+
+function resetBracket(){
+  if(!T.sourceState)return;
+  initTournament(T.sourceState);
+}
+
+function _propagate(r,m){
+  const match=T.rounds[r][m];
+  if(!match.winner||r>=T.rounds.length-1)return;
+  const {name,col}=match.winner==='a'?{name:match.a,col:match.aCol}:{name:match.b,col:match.bCol};
+  const next=T.rounds[r+1][Math.floor(m/2)];
+  if(m%2===0){next.a=name;next.aCol=col;}else{next.b=name;next.bCol=col;}
+}
+
+function pickWinner(r,m,side){
+  const match=T.rounds[r][m];
+  if(!match.a||!match.b||match.bye)return;
+  // Clear all downstream results from this match
+  _clearDownstream(r,m);
+  match.winner=side;
+  _propagate(r,m);
+  renderTournamentBracket();
+  _checkChampion();
+}
+
+function _clearDownstream(r,m){
+  if(r>=T.rounds.length-1)return;
+  const nextM=Math.floor(m/2);
+  const next=T.rounds[r+1][nextM];
+  // Clear the slot this match feeds into
+  if(m%2===0){next.a=null;next.aCol='';}else{next.b=null;next.bCol='';}
+  next.winner=null;
+  _clearDownstream(r+1,nextM);
+}
+
+function _checkChampion(){
+  const final=T.rounds[T.rounds.length-1][0];
+  const box=document.getElementById('champion-box');
+  if(final?.winner){
+    const name=final.winner==='a'?final.a:final.b;
+    const team=T.teams.find(t=>t.name===name);
+    document.getElementById('champion-name').textContent=name;
+    document.getElementById('champion-sub').textContent=`Seed #${team?.seed} · Strength score ${team?.strength} · ${team?.roster?.length} Pokémon`;
+    box.style.display='';
+  }else{box.style.display='none';}
+}
+
+function renderTournament(){
+  document.getElementById('tournament-content').style.display='';
+  // Seeds
+  document.getElementById('seeds-grid').innerHTML=T.teams.map(t=>`
+    <div class="seed-card">
+      <div class="seed-num">#${t.seed}</div>
+      <div>
+        <div class="seed-nm"><span class="b-dot" style="background:${t.color}"></span>${t.name}</div>
+        <div class="seed-pts">Strength ${t.strength} · ${t.roster.length} Pokémon</div>
+      </div>
+    </div>`).join('');
+  renderTournamentBracket();
+  _checkChampion();
+}
+
+function renderTournamentBracket(){
+  const nR=T.rounds.length;
+  const labels=nR===1?['Final']:nR===2?['Semi-finals','Final']:
+    nR===3?['Quarter-finals','Semi-finals','Final']:
+    T.rounds.map((_,i)=>i===nR-1?'Final':i===nR-2?'Semi-finals':i===nR-3?'Quarter-finals':`Round ${i+1}`);
+
+  const el=document.getElementById('bracket-main');
+  el.innerHTML='';
+
+  T.rounds.forEach((round,r)=>{
+    const col=document.createElement('div');
+    col.className='b-round';col.dataset.r=r;
+    const matchesHtml=round.map((match,m)=>{
+      const slotA=_renderSlot(match,'a',r,m);
+      const slotB=_renderSlot(match,'b',r,m);
+      return`<div class="b-match" data-r="${r}" data-m="${m}">${slotA}${slotB}</div>`;
+    }).join('');
+    col.innerHTML=`<div class="b-round-title">${labels[r]}</div><div class="b-matches">${matchesHtml}</div>`;
+    el.appendChild(col);
+  });
+
+  // Draw SVG connector lines after paint
+  requestAnimationFrame(()=>_drawLines());
+}
+
+function _renderSlot(match,side,r,m){
+  const name=match[side],col=match[side+'Col'];
+  if(!name)return`<div class="b-slot tbd">TBD</div>`;
+  const noOpp=match[side==='a'?'b':'a']===null;
+  if(noOpp)return`<div class="b-slot bye"><span class="b-dot" style="background:${col}"></span>${name} <span style="margin-left:auto;font-size:10px;color:var(--faint)">BYE</span></div>`;
+  const isW=match.winner===side,isL=match.winner&&match.winner!==side;
+  const cls=isW?'winner':isL?'loser':'pick';
+  return`<div class="b-slot ${cls}" onclick="pickWinner(${r},${m},'${side}')">
+    <span class="b-dot" style="background:${col}"></span>${name}
+    ${isW?'<span style="margin-left:auto;font-size:11px;color:var(--good)">✓</span>':''}
+  </div>`;
+}
+
+function _drawLines(){
+  const el=document.getElementById('bracket-main');
+  if(!el)return;
+  // Remove old SVG
+  el.querySelectorAll('.b-svg').forEach(s=>s.remove());
+  const base=el.getBoundingClientRect();
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.classList.add('b-svg');
+  svg.style.cssText='position:absolute;top:0;left:0;pointer-events:none;overflow:visible;width:100%;height:100%';
+  el.style.position='relative';
+  el.appendChild(svg);
+
+  const rounds=el.querySelectorAll('.b-round');
+  for(let r=0;r<rounds.length-1;r++){
+    const matches=rounds[r].querySelectorAll('.b-match');
+    const nextMatches=rounds[r+1].querySelectorAll('.b-match');
+    for(let nm=0;nm<nextMatches.length;nm++){
+      const top=matches[nm*2],bot=matches[nm*2+1],nxt=nextMatches[nm];
+      if(!top||!bot||!nxt)continue;
+      const tR=top.getBoundingClientRect(),bR=bot.getBoundingClientRect(),nR=nxt.getBoundingClientRect();
+      const x1=tR.right-base.left,y1=tR.top+tR.height/2-base.top;
+      const x2=bR.right-base.left,y2=bR.top+bR.height/2-base.top;
+      const x3=nR.left-base.left,y3=(tR.top+bR.bottom)/2-base.top;
+      const mid=(x1+x3)/2;
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',`M${x1},${y1} H${mid} V${y2} M${x2},${y2} H${mid} M${mid},${y3} H${x3}`);
+      path.setAttribute('stroke','var(--line2)');path.setAttribute('stroke-width','1.5');
+      path.setAttribute('fill','none');path.setAttribute('stroke-linecap','round');
+      svg.appendChild(path);
+    }
+  }
 }
 
 /* ============ INIT ============ */
