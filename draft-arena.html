@@ -92,6 +92,9 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
 .tier-untiered{background:var(--panel2);color:var(--muted);border-color:var(--line2)}
 .tier-nfe{background:#607d8b;color:#fff;border-color:#455a64}
 .tier-ag{background:#212121;color:#fff;border-color:#000}
+.build-badge{display:inline-block;font-size:9px;padding:1px 6px;border-radius:4px;
+  background:rgba(255,210,63,.1);color:var(--accent);border:1px solid rgba(255,210,63,.22);
+  font-weight:700;text-transform:uppercase;letter-spacing:0.5px;vertical-align:middle;margin-left:4px;white-space:nowrap}
 
 /* Moves display */
 .moves-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -578,17 +581,41 @@ async function fetchAndRenderSmogonSet(p){
   }
 }
 
+// Fetch all tier files at startup, update POOL with real tiers + hasBuild flag, re-render board
+async function initSmogonTiers(){
+  const norm=s=>s.replace(/[♂♀]/g,'').replace(/\s+/g,'-');
+  const tierMap={};
+  for(const fmt of SMOGON_FMTS){
+    const data=await _smogonLoad(`gen9${fmt}`);
+    const label=SMOGON_TIER_LABEL[fmt];
+    for(const name of Object.keys(data)){if(!tierMap[name])tierMap[name]=label;}
+  }
+  let changed=false;
+  POOL.forEach(p=>{
+    const t=tierMap[p.name]||tierMap[norm(p.name)];
+    const newBuild=!!t;
+    const newTier=t||p.tier;
+    if(p.hasBuild!==newBuild||p.tier!==newTier){
+      p.hasBuild=newBuild;p.tier=newTier;
+      POOL_BY_ID[p.id].hasBuild=newBuild;POOL_BY_ID[p.id].tier=newTier;
+      changed=true;
+    }
+  });
+  if(changed)renderBoard();
+}
+
 // Get tier description
 const getTierDesc=tier=>{
-  const d={'Uber':'Most powerful Pokémon','OU':'Overused - Top competitive tier',
-    'UU':'Underused - Strong but less common','RU':'Rarely Used - Viable options',
-    'NU':'Never Used - Niche picks','PU':'Poorly Used - Situational',
+  const d={'AG':'Anything Goes — no bans','Uber':'Most powerful Pokémon',
+    'OU':'Overused — top competitive tier','UU':'Underused — strong but less common',
+    'RU':'Rarely Used — viable options','NU':'Never Used — niche picks',
+    'PU':'Poorly Used — situational','NFE':'Not Fully Evolved — Eviolite users',
     'Untiered':'Not competitively ranked'};
   return d[tier]||'';
 };
 // Tier ranking for sorting
 const tierRank=tier=>{
-  const ranks={'Uber':0,'OU':1,'UU':2,'RU':3,'NU':4,'PU':5,'Untiered':6};
+  const ranks={'AG':-1,'Uber':0,'OU':1,'UU':2,'RU':3,'NU':4,'PU':5,'NFE':6,'Untiered':7};
   return ranks[tier]??99;
 };
 /* ============ TYPE CHART ============ */
@@ -958,7 +985,7 @@ function renderBoard(){
       <td>${sprImg(p.pid,"spr")}</td>
       <td><div class="cell-mon"><div><div class="nm">${p.name} ${p.champions?'<span class="champ-flag">CHMP</span>':''}</div><div class="dx">#${String(p.num).padStart(4,'0')}</div></div></div></td>
       <td><span class="gen-badge">Gen ${p.gen}</span></td>
-      <td><span class="tier-badge tier-${p.tier.toLowerCase()}">${p.tier}</span></td>
+      <td><span class="tier-badge tier-${p.tier.toLowerCase()}">${p.tier}</span>${p.hasBuild?'<span class="build-badge">◆ Build</span>':''}</td>
       <td>${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join(" ")}</td>
       <td>${miniStats(p)}</td>
       <td class="mono" style="color:var(--muted)">${p.bst}</td>
@@ -1035,7 +1062,7 @@ function renderPickGrid(){
       ${sprImg(p.pid,"spr")}
       <div class="nm">${p.name}</div>
       <div class="types">${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join("")}</div>
-      <div style="margin-top:4px"><span class="tier-badge tier-${p.tier.toLowerCase()}">${p.tier}</span></div>
+      <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center"><span class="tier-badge tier-${p.tier.toLowerCase()}">${p.tier}</span>${p.hasBuild?'<span class="build-badge">◆ Build</span>':''}</div>
       ${owner?`<div class="drafted-tag" style="font-size:11px">● ${owner.name}</div>`:
         unaffordable?`<div style="font-size:11px;color:var(--warn)">Over budget</div>`:''}
       <button class="detail-btn" onclick="event.stopPropagation();openModal('${p.id}')">Details & stats</button>
@@ -1194,6 +1221,9 @@ syncSetupInputs();
 initHeroArt();
 // if a draft is mid-flight, default to draft view
 if(S.started&&!S.ended)go('draft');else go('home');
+// kick off Smogon tier data fetch; updates board tiers + build badges when ready
+_preloadSmogon();
+initSmogonTiers();
 </script>
 </body>
 </html>
