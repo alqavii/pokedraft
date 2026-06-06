@@ -1477,6 +1477,25 @@ function renderTournamentBracket(){
     el.appendChild(col);
   });
 
+  // Winner column — single slot showing the champion
+  const final=T.rounds[T.rounds.length-1][0];
+  const champName=final?.winner?(final.winner==='a'?final.a:final.b):null;
+  const champCol=final?.winner?(final.winner==='a'?final.aCol:final.bCol):'';
+  const winnerCol=document.createElement('div');
+  winnerCol.className='b-round';
+  winnerCol.innerHTML=`<div class="b-round-title">Winner</div>
+    <div class="b-matches">
+      <div class="b-match" style="justify-content:center">
+        ${champName
+          ?`<div class="b-slot winner" style="border-color:var(--accent);background:rgba(255,210,63,.08);font-size:14px;font-weight:800">
+              <span class="b-dot" style="background:${champCol}"></span>${champName}
+              <span style="margin-left:auto;color:var(--accent);font-size:13px">★</span>
+            </div>`
+          :`<div class="b-slot tbd">TBD</div>`}
+      </div>
+    </div>`;
+  el.appendChild(winnerCol);
+
   // Draw SVG connector lines after paint
   requestAnimationFrame(()=>_drawLines());
 }
