@@ -97,6 +97,27 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
   background:var(--bg2);color:var(--ink);border:1px solid var(--line2)}
 .move-chip:hover{border-color:var(--accent);background:var(--panel)}
 
+/* Smogon set box */
+.smogon-set{background:linear-gradient(135deg,var(--panel2),rgba(29,34,51,.6));border:1px solid var(--line2);
+  border-radius:12px;padding:16px;margin-bottom:14px;position:relative;overflow:hidden}
+.smogon-set::before{content:'';position:absolute;inset:0;border-radius:12px;
+  background:linear-gradient(90deg,rgba(255,210,63,.04),transparent 60%);pointer-events:none}
+.smogon-set-head{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.smogon-set-name{font-weight:700;font-size:13px;color:var(--ink);font-family:'Space Mono',monospace}
+.smogon-set-tag{font-size:10px;padding:2px 8px;border-radius:5px;background:rgba(255,210,63,.12);
+  color:var(--accent);border:1px solid rgba(255,210,63,.25);font-weight:700;text-transform:uppercase;letter-spacing:0.5px}
+.smogon-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin-bottom:10px}
+.smogon-field label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:1px;color:var(--faint);margin-bottom:2px}
+.smogon-field span{font-size:13px;color:var(--ink);font-weight:600}
+.smogon-evs{font-size:11px;font-weight:600;color:var(--muted);padding:5px 10px;
+  background:var(--bg);border-radius:7px;margin-bottom:10px;font-family:'Space Mono',monospace}
+.smogon-move{display:inline-flex;align-items:center;padding:5px 11px;border-radius:7px;
+  font-size:12px;font-weight:600;background:rgba(255,210,63,.08);color:var(--ink);
+  border:1px solid rgba(255,210,63,.2)}
+.smogon-moves{display:flex;flex-wrap:wrap;gap:6px}
+.smogon-loading{color:var(--faint);font-size:12px;padding:8px 0;font-style:italic}
+
 /* Coverage grid */
 .coverage-section label{display:block;font-size:12px;font-weight:700;color:var(--muted);
   text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
@@ -488,6 +509,60 @@ const TYPE_COLOR=t=>`var(--t-${t.toLowerCase()})`;
 const STAT_KEYS=["HP","Atk","Def","SpA","SpD","Spe"];
 const ALL_TYPES=["Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison","Ground","Flying","Psychic","Bug","Rock","Ghost","Dragon","Dark","Steel","Fairy"];
 const getGen=num=>{if(num<=151)return 1;if(num<=251)return 2;if(num<=386)return 3;if(num<=493)return 4;if(num<=649)return 5;if(num<=721)return 6;if(num<=809)return 7;if(num<=905)return 8;return 9;};
+/* ============ SMOGON SET FETCH ============ */
+const SMOGON_CACHE={};
+const tierFmt=t=>({'Uber':'ubers','OU':'ou','UU':'uu','RU':'ru','NU':'nu','PU':'pu'})[t]||'ou';
+
+async function fetchSmogonSet(name,gen,tier){
+  const fmt=`gen${Math.min(gen,9)}${tierFmt(tier)}`;
+  const fallback=`gen9${tierFmt(tier)}`;
+  async function tryFetch(f){
+    if(!SMOGON_CACHE[f])
+      SMOGON_CACHE[f]=fetch(`https://pkmn.github.io/smogon/data/sets/${f}.json`)
+        .then(r=>r.ok?r.json():{}).catch(()=>({}));
+    return SMOGON_CACHE[f];
+  }
+  const normName=s=>s.replace(/[♂♀]/g,'').replace(/\s+/g,'-');
+  let data=await tryFetch(fmt);
+  let sets=data[name]||data[normName(name)];
+  if(!sets&&fmt!==fallback){
+    data=await tryFetch(fallback);
+    sets=data[name]||data[normName(name)];
+  }
+  if(!sets)return null;
+  const setName=Object.keys(sets)[0];
+  return{setName,tier,...sets[setName]};
+}
+function _firstOf(v){return Array.isArray(v)?v[0]:v}
+function _fmtEvs(evs){
+  if(!evs)return '';
+  const n={hp:'HP',atk:'Atk',def:'Def',spa:'SpA',spd:'SpD',spe:'Spe'};
+  return Object.entries(evs).filter(([,v])=>v>0).map(([k,v])=>`${v} ${n[k]||k}`).join(' / ');
+}
+function renderSmogonSet(s){
+  const moves=(s.moves||[]).map(slot=>Array.isArray(slot)?slot[0]:slot);
+  const evStr=_fmtEvs(s.evs);
+  return `<div class="smogon-set">
+    <div class="smogon-set-head">
+      <span class="smogon-set-name">${s.setName}</span>
+      <span class="smogon-set-tag">${s.tier} · Smogon</span>
+    </div>
+    <div class="smogon-meta">
+      <div class="smogon-field"><label>Item</label><span>${_firstOf(s.item)||'—'}</span></div>
+      <div class="smogon-field"><label>Ability</label><span>${_firstOf(s.ability)||'—'}</span></div>
+      <div class="smogon-field"><label>Nature</label><span>${_firstOf(s.nature)||'—'} Nature</span></div>
+    </div>
+    ${evStr?`<div class="smogon-evs">EVs: ${evStr}</div>`:''}
+    <div class="smogon-moves">${moves.map(m=>`<span class="smogon-move">${m}</span>`).join('')}</div>
+  </div>`;
+}
+async function fetchAndRenderSmogonSet(p){
+  const box=document.getElementById('smogon-set-box');
+  if(!box)return;
+  const s=await fetchSmogonSet(p.name,p.gen,p.tier);
+  box.innerHTML=s?renderSmogonSet(s):`<span style="color:var(--faint);font-size:12px">No competitive set on record</span>`;
+}
+
 // Get tier description
 const getTierDesc=tier=>{
   const d={'Uber':'Most powerful Pokémon','OU':'Overused - Top competitive tier',
@@ -589,8 +664,14 @@ function scoreAndSuggest(roster,budget){
         else if(e<1)score+=4;
         else if(e>=2)score-=8;
       });
-      // Value: BST per cost point
-      score+=p.bst/p.cost*0.5;
+      // Power bonus on absolute scale (not divided by cost)
+      if(p.bst>=580)score+=14;else if(p.bst>=540)score+=8;else if(p.bst>=500)score+=4;
+      // Budget fit: reward meaningful spend; penalise ultra-cheap picks when budget is healthy
+      const pctB=p.cost/budget;
+      if(pctB>=0.25)score+=8;
+      else if(pctB>=0.12)score+=3;
+      else if(p.cost<=3&&budget>25)score-=18;
+      else if(p.cost<=5&&budget>35)score-=8;
       // Coverage breadth (even for already-covered types)
       const breadth=new Set();
       p.types.forEach(t=>(TYPE_SE[t]||[]).forEach(d=>breadth.add(d)));
@@ -1035,7 +1116,9 @@ function openModal(id){
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:14px">Competitive Tier</label>
       <div style="margin-bottom:14px"><span class="tier-badge tier-${p.tier.toLowerCase()}" style="font-size:13px">${p.tier}</span>
         <span style="font-size:12px;color:var(--muted);margin-left:8px">${getTierDesc(p.tier)}</span></div>
-      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Notable Moves</label>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:14px">Meta Build</label>
+      <div id="smogon-set-box" class="smogon-loading">Fetching Smogon set…</div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:14px">Notable Moves</label>
       <div class="moves-list" style="margin-bottom:14px">${p.moves.length>0?p.moves.map(m=>`<span class="move-chip">${m}</span>`).join(''):'<span style="color:var(--muted);font-size:13px">No notable moves listed</span>'}</div>
     </div>
     <div class="modal-foot">
@@ -1046,6 +1129,7 @@ function openModal(id){
       <button class="btn ghost" onclick="closeModal()">Close</button>
     </div>`;
   document.getElementById("scrim").classList.add("show");
+  fetchAndRenderSmogonSet(p);
 }
 function closeModal(){document.getElementById("scrim").classList.remove("show");}
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
