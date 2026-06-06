@@ -1018,7 +1018,9 @@ function nthValidSlot(k){
 function endDraft(natural){
   S.ended=true;S.started=true;save();
   renderDraft();
-  toast(natural?"Draft complete — all picks locked in":"Draft ended early","win");
+  toast(natural?"Draft complete — loading tournament…":"Draft ended early — loading tournament…","win");
+  exportDraft();
+  setTimeout(()=>initTournament(S),400);
 }
 
 /* ============ RENDER: DRAFT BOARD ============ */
