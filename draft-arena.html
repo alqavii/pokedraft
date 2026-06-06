@@ -418,6 +418,36 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
 
       <div class="teams-strip" id="teamsStrip"></div>
 
+      <!-- ANALYSIS PANEL -->
+      <div id="analysisPanel" style="display:none;margin-bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted)">Team Analysis</span>
+          <span id="analysisTeamName" style="font-weight:800;font-size:15px"></span>
+          <button class="chip" id="toggleAnalysisBtn" onclick="toggleAnalysis()" style="margin-left:auto;font-size:11px;padding:4px 10px">▲ Hide</button>
+        </div>
+        <div id="analysisPanelBody">
+          <div class="coverage-grid">
+            <div class="cov-box">
+              <label>Offensive Coverage (STAB)</label>
+              <p style="font-size:11px;color:var(--faint);margin-bottom:10px">Types your team hits super-effectively</p>
+              <div class="type-coverage-bars" id="offenseBars"></div>
+            </div>
+            <div class="cov-box">
+              <label>Shared Weaknesses</label>
+              <p style="font-size:11px;color:var(--faint);margin-bottom:10px">Types hitting 2+ teammates super-effectively</p>
+              <div class="weakness-chips" id="weaknessChips"></div>
+            </div>
+          </div>
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <span class="kicker">Suggested Picks</span>
+              <span style="font-size:11px;color:var(--faint)">Ranked by coverage gaps, synergy &amp; value</span>
+            </div>
+            <div id="suggestCards"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="toolbar">
         <div class="search">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -471,6 +501,110 @@ const tierRank=tier=>{
   const ranks={'Uber':0,'OU':1,'UU':2,'RU':3,'NU':4,'PU':5,'Untiered':6};
   return ranks[tier]??99;
 };
+/* ============ TYPE CHART ============ */
+// Attacking type → defending types it hits for 2×
+const TYPE_SE={
+  Normal:[],Fire:['Grass','Ice','Bug','Steel'],Water:['Fire','Ground','Rock'],
+  Electric:['Water','Flying'],Grass:['Water','Ground','Rock'],
+  Ice:['Grass','Ground','Flying','Dragon'],Fighting:['Normal','Ice','Rock','Dark','Steel'],
+  Poison:['Grass','Fairy'],Ground:['Fire','Electric','Poison','Rock','Steel'],
+  Flying:['Grass','Fighting','Bug'],Psychic:['Fighting','Poison'],
+  Bug:['Grass','Psychic','Dark'],Rock:['Fire','Ice','Flying','Bug'],
+  Ghost:['Ghost','Psychic'],Dragon:['Dragon'],Dark:['Ghost','Psychic'],
+  Steel:['Ice','Rock','Fairy'],Fairy:['Fighting','Dragon','Dark']
+};
+// Defending type → attacking types that hit it 2×
+const TYPE_WEAK={
+  Normal:['Fighting'],Fire:['Water','Ground','Rock'],Water:['Electric','Grass'],
+  Electric:['Ground'],Grass:['Fire','Ice','Poison','Flying','Bug'],
+  Ice:['Fire','Fighting','Rock','Steel'],Fighting:['Flying','Psychic','Fairy'],
+  Poison:['Ground','Psychic'],Ground:['Water','Grass','Ice'],
+  Flying:['Electric','Ice','Rock'],Psychic:['Bug','Ghost','Dark'],
+  Bug:['Fire','Flying','Rock'],Rock:['Water','Grass','Fighting','Ground','Steel'],
+  Ghost:['Ghost','Dark'],Dragon:['Ice','Dragon','Fairy'],
+  Dark:['Fighting','Bug','Fairy'],Steel:['Fire','Fighting','Ground'],
+  Fairy:['Poison','Steel']
+};
+// Defending type → attacking types that deal 0×
+const TYPE_IMM={
+  Normal:['Ghost'],Fire:[],Water:[],Electric:[],Grass:[],Ice:[],
+  Fighting:[],Poison:[],Ground:['Electric'],Flying:['Ground'],
+  Psychic:[],Bug:[],Rock:[],Ghost:['Normal','Fighting'],
+  Dragon:[],Dark:['Psychic'],Steel:['Poison'],Fairy:['Dragon']
+};
+// Defending type → attacking types that hit it 0.5×
+const TYPE_NVE={
+  Normal:['Rock','Steel'],Fire:['Fire','Water','Rock','Dragon'],
+  Water:['Water','Grass','Dragon'],Electric:['Electric','Grass','Dragon'],
+  Grass:['Fire','Grass','Poison','Flying','Bug','Dragon','Steel'],
+  Ice:['Water','Ice'],Fighting:['Poison','Flying','Psychic','Bug','Fairy'],
+  Poison:['Poison','Ground','Rock','Ghost'],Ground:['Grass','Bug'],
+  Flying:['Electric','Rock','Steel'],Psychic:['Psychic','Steel'],
+  Bug:['Fire','Fighting','Flying','Ghost','Steel','Fairy'],
+  Rock:['Fighting','Ground','Steel'],Ghost:['Dark'],Dragon:['Steel'],
+  Dark:['Fighting','Dark','Fairy'],Steel:['Fire','Water','Electric','Steel'],
+  Fairy:['Fire','Poison','Steel']
+};
+// Total effectiveness of atkType vs a dual-type combo
+function typeEff(atkType,defTypes){
+  let m=1;
+  for(const dt of defTypes){
+    if((TYPE_IMM[dt]||[]).includes(atkType))return 0;
+    if((TYPE_WEAK[dt]||[]).includes(atkType))m*=2;
+    else if((TYPE_NVE[dt]||[]).includes(atkType))m*=0.5;
+  }
+  return m;
+}
+// Compute full team coverage stats for a roster (array of ids)
+function calcTeamCoverage(roster){
+  const off={},def={};
+  ALL_TYPES.forEach(t=>{off[t]=0;def[t]=0;});
+  roster.forEach(id=>{
+    const p=POOL_BY_ID[id];if(!p)return;
+    // Which types does this mon cover SE via STAB?
+    const seen=new Set();
+    p.types.forEach(atk=>(TYPE_SE[atk]||[]).forEach(dt=>{if(!seen.has(dt)){seen.add(dt);off[dt]++;}}));
+    // Which attack types does it take ≥2× from?
+    ALL_TYPES.forEach(atk=>{if(typeEff(atk,p.types)>=2)def[atk]++;});
+  });
+  return{off,def};
+}
+
+/* ============ AUTO-SUGGEST ============ */
+function scoreAndSuggest(roster,budget){
+  const{off,def}=calcTeamCoverage(roster);
+  const threats=ALL_TYPES.filter(t=>def[t]>=2);
+  return POOL
+    .filter(p=>S.drafted[p.id]===undefined&&p.cost<=budget)
+    .map(p=>{
+      let score=0;const reasons=[];
+      // Coverage fills: types not yet covered offensively
+      const fills=new Set();
+      p.types.forEach(atk=>(TYPE_SE[atk]||[]).forEach(dt=>{if(off[dt]===0)fills.add(dt);}));
+      if(fills.size){score+=fills.size*20;reasons.push(`Covers ${[...fills].slice(0,3).join(', ')}`);}
+      // Defensive synergy vs shared threats
+      threats.forEach(threat=>{
+        const e=typeEff(threat,p.types);
+        if(e===0){score+=12;reasons.push(`Immune to ${threat}`);}
+        else if(e<1)score+=4;
+        else if(e>=2)score-=8;
+      });
+      // Value: BST per cost point
+      score+=p.bst/p.cost*0.5;
+      // Coverage breadth (even for already-covered types)
+      const breadth=new Set();
+      p.types.forEach(t=>(TYPE_SE[t]||[]).forEach(d=>breadth.add(d)));
+      score+=breadth.size*1.5;
+      // BST tier bonus
+      if(p.bst>=580)score+=12;
+      else if(p.bst>=530)score+=6;
+      if(p.champions)score+=3;
+      return{p,score,reasons:[...new Set(reasons)].slice(0,3)};
+    })
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,5);
+}
+
 // Sprites use verified PokeAPI numeric IDs. We try official-artwork first,
 // then home, then the default sprite — so every Pokemon always shows an image.
 const SPR_ART=p=>`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${p}.png`;
@@ -758,7 +892,7 @@ function renderDraft(){
     document.getElementById("clockBudget").textContent=S.teams[ti].budgetLeft;
   }
   document.getElementById("undoBtn").disabled=!S.history.length;
-  renderTeamsStrip();renderPickGrid();
+  renderTeamsStrip();renderPickGrid();renderAnalysisPanel();
 }
 function renderTeamsStrip(){
   const ti=currentTeamIndex();
@@ -811,6 +945,64 @@ function renderPickGrid(){
       <button class="detail-btn" onclick="event.stopPropagation();openModal('${p.id}')">Details & stats</button>
     </div>`;
   }).join("");
+}
+
+/* ============ RENDER: ANALYSIS PANEL ============ */
+function renderAnalysisPanel(){
+  const panel=document.getElementById('analysisPanel');
+  const ti=currentTeamIndex();
+  if(!S.started||S.ended||ti===null){panel.style.display='none';return;}
+  panel.style.display='';
+  const team=S.teams[ti];
+  const nameEl=document.getElementById('analysisTeamName');
+  nameEl.textContent=team.name;nameEl.style.color=team.color;
+  const{off,def}=calcTeamCoverage(team.roster);
+  const maxPct=Math.max(1,team.roster.length);
+  // Offense bars
+  document.getElementById('offenseBars').innerHTML=ALL_TYPES.map(t=>{
+    const n=off[t];const pct=n/maxPct*100;
+    return`<div class="cov-row">
+      <span class="type" style="background:${TYPE_COLOR(t)};min-width:70px;text-align:center;font-size:10px;padding:2px 6px">${t}</span>
+      <div class="cov-track" style="flex:1"><div class="cov-fill" style="width:${Math.min(100,pct)}%;background:${TYPE_COLOR(t)}"></div></div>
+      <span class="cov-val" style="color:${n>0?'var(--good)':'var(--faint)'}">${n>0?n+'×':'—'}</span>
+    </div>`;
+  }).join('');
+  // Weakness chips
+  const weak=ALL_TYPES.map(t=>({t,n:def[t]})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+  document.getElementById('weaknessChips').innerHTML=weak.length
+    ?weak.map(({t,n})=>`<div class="weakness-chip">
+        <span class="type" style="background:${TYPE_COLOR(t)};font-size:10px;padding:2px 7px">${t}</span>
+        <span style="font-size:11px;font-weight:700;color:${n>=3?'var(--accent2)':n>=2?'var(--warn)':'var(--muted)'}">${n}× weak</span>
+      </div>`).join('')
+    :`<span style="color:var(--good);font-size:13px;font-weight:600">No shared weaknesses yet</span>`;
+  // Suggestions
+  const picks=scoreAndSuggest(team.roster,team.budgetLeft);
+  document.getElementById('suggestCards').innerHTML=picks.length
+    ?picks.map((s,i)=>`<div class="suggestion-card" onclick="draftPick('${s.p.id}')">
+        <div class="sug-rank">#${i+1}</div>
+        <div class="sug-info">
+          ${sprImg(s.p.pid,'',`style="width:52px;height:52px;object-fit:contain;flex:none"`)}
+          <div>
+            <div class="nm">${s.p.name}</div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">
+              ${s.p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)};font-size:10px">${t}</span>`).join('')}
+            </div>
+            <div style="margin-top:4px;font-size:11px;color:var(--muted)">Cost <b style="color:var(--accent)">${s.p.cost}</b> · BST ${s.p.bst}</div>
+          </div>
+        </div>
+        <div class="sug-reasons">
+          <div class="score">Score ${Math.round(s.score)}</div>
+          <ul>${(s.reasons.length?s.reasons:['High value pick']).map(r=>`<li>${r}</li>`).join('')}</ul>
+        </div>
+      </div>`).join('')
+    :`<p style="color:var(--muted);font-size:13px">No picks available within budget.</p>`;
+}
+function toggleAnalysis(){
+  const body=document.getElementById('analysisPanelBody');
+  const btn=document.getElementById('toggleAnalysisBtn');
+  const hidden=body.style.display==='none';
+  body.style.display=hidden?'':'none';
+  btn.textContent=hidden?'▲ Hide':'▼ Show';
 }
 
 /* ============ MODAL ============ */
