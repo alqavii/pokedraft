@@ -278,6 +278,7 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
 .pcard:hover{border-color:var(--accent);transform:translateY(-3px)}
 .pcard.unavail{opacity:.34;filter:grayscale(.8);cursor:not-allowed;pointer-events:none}
 .pcard.toopricey{opacity:.5;cursor:not-allowed}
+.pcard.tooexp{opacity:.45;cursor:not-allowed;border-color:rgba(255,93,115,.25)}
 .pcard .top{display:flex;justify-content:space-between;align-items:flex-start}
 .pcard .spr{width:84px;height:84px;object-fit:contain;align-self:center;margin:-4px 0}
 .pcard .nm{font-weight:700;font-size:15px;line-height:1.1}
@@ -912,6 +913,13 @@ function canDraft(p,ti){
   if(S.drafted[p.id]!==undefined)return"taken";
   if(p.cost>S.teams[ti].budgetLeft)return"budget";
   if(S.teams[ti].roster.length>=S.rosterSize)return"full";
+  // Infeasibility: after this pick, can remaining slots still be filled?
+  const slotsLeft=S.rosterSize-S.teams[ti].roster.length;
+  if(slotsLeft>1){
+    const avail=POOL.filter(x=>S.drafted[x.id]===undefined&&x.id!==p.id);
+    const minCost=avail.length?Math.min(...avail.map(x=>x.cost)):0;
+    if(S.teams[ti].budgetLeft-p.cost<(slotsLeft-1)*minCost)return"infeasible";
+  }
   return"ok";
 }
 function draftPick(id){
@@ -919,6 +927,7 @@ function draftPick(id){
   const p=POOL_BY_ID[id];const chk=canDraft(p,ti);
   if(chk==="taken"){toast("Already drafted","bad");return;}
   if(chk==="budget"){toast(S.teams[ti].name+" can't afford "+p.name,"bad");return;}
+  if(chk==="infeasible"){toast("Can't pick — wouldn't leave enough budget to fill the roster","bad");return;}
   S.drafted[id]=ti;
   S.teams[ti].roster.push(id);
   S.teams[ti].budgetLeft-=p.cost;
@@ -982,7 +991,7 @@ function nthValidSlot(k){
 function endDraft(natural){
   S.ended=true;S.started=true;save();
   renderDraft();
-  if(natural)toast("Draft complete! 🎉","win");
+  toast(natural?"Draft complete — all picks locked in":"Draft ended early","win");
 }
 
 /* ============ RENDER: DRAFT BOARD ============ */
@@ -1122,12 +1131,19 @@ function renderPickGrid(){
   }).sort((a,b)=>b.cost-a.cost||a.name.localeCompare(b.name));
   const grid=document.getElementById("pickGrid");
   if(!rows.length){grid.innerHTML='<div class="empty-state">No Pokémon match.</div>';return;}
+  // Pre-compute infeasibility: cheapest undrafted pick available
+  const _avail=POOL.filter(x=>S.drafted[x.id]===undefined);
+  const _minCost=_avail.length?Math.min(..._avail.map(x=>x.cost)):0;
+  const slotsLeft=ti!==null?S.rosterSize-S.teams[ti].roster.length:0;
   grid.innerHTML=rows.map(p=>{
     const taken=S.drafted[p.id];
     const owner=taken!==undefined?S.teams[taken]:null;
     const unaffordable=ti!==null&&!owner&&p.cost>budget;
-    const cls=owner?"unavail":(unaffordable?"toopricey":"");
-    const onclick=(!owner&&!unaffordable&&!S.ended)?`onclick="draftPick('${p.id}')"`:"";
+    // Infeasible: picking this would leave too little budget to fill remaining slots
+    const infeasible=!owner&&!unaffordable&&ti!==null&&slotsLeft>1&&
+      (budget-p.cost)<(slotsLeft-1)*_minCost;
+    const cls=owner?"unavail":unaffordable?"toopricey":infeasible?"tooexp":"";
+    const onclick=(!owner&&!unaffordable&&!infeasible&&!S.ended)?`onclick="draftPick('${p.id}')"`:"";
     return `<div class="pcard ${cls}" ${onclick}>
       <div class="top">
         <span class="dx">#${String(p.num).padStart(4,'0')}</span>
@@ -1139,7 +1155,8 @@ function renderPickGrid(){
       <div class="types">${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join("")}</div>
       <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center"><span class="tier-badge tier-${p.tier.toLowerCase()}">${p.tier}</span>${p.hasBuild?'<span class="build-badge">◆ Build</span>':''}</div>
       ${owner?`<div class="drafted-tag" style="font-size:11px">● ${owner.name}</div>`:
-        unaffordable?`<div style="font-size:11px;color:var(--warn)">Over budget</div>`:''}
+        unaffordable?`<div style="font-size:11px;color:var(--warn)">Over budget</div>`:
+        infeasible?`<div style="font-size:11px;color:var(--accent2)">Roster can't be completed</div>`:''}
       <button class="detail-btn" onclick="event.stopPropagation();openModal('${p.id}')">Details & stats</button>
     </div>`;
   }).join("");
@@ -1209,7 +1226,11 @@ function openModal(id){
   const p=POOL_BY_ID[id];const ti=currentTeamIndex();
   const taken=S.drafted[id];const owner=taken!==undefined?S.teams[taken]:null;
   const statColors=["#46e5a0","#ff5d73","#ffce32","#4d90ff","#b259cf","#67d6e0"];
-  const canPick=S.started&&!S.ended&&!owner&&ti!==null&&p.cost<=S.teams[ti].budgetLeft;
+  const _mAvail=POOL.filter(x=>S.drafted[x.id]===undefined&&x.id!==p.id);
+  const _mMin=_mAvail.length?Math.min(..._mAvail.map(x=>x.cost)):0;
+  const _mSlots=ti!==null?S.rosterSize-S.teams[ti].roster.length:0;
+  const _mInfeasible=ti!==null&&_mSlots>1&&(S.teams[ti].budgetLeft-p.cost)<(_mSlots-1)*_mMin;
+  const canPick=S.started&&!S.ended&&!owner&&ti!==null&&p.cost<=S.teams[ti].budgetLeft&&!_mInfeasible;
   document.getElementById("modal").innerHTML=`
     <div class="mhead">
       ${sprImg(p.pid,"")}
@@ -1240,6 +1261,7 @@ function openModal(id){
     <div class="modal-foot">
       ${owner?`<div class="pill" style="color:var(--accent2)">● Drafted by ${owner.name}</div>`:
         canPick?`<button class="btn" style="flex:1" onclick="draftPick('${p.id}')">Draft to ${S.teams[ti].name} (−${p.cost})</button>`:
+        (S.started&&!S.ended&&ti!==null&&_mInfeasible)?`<div class="pill" style="color:var(--accent2)">Roster can't be completed if picked</div>`:
         (S.started&&!S.ended&&ti!==null)?`<div class="pill" style="color:var(--warn)">Over ${S.teams[ti].name}'s budget</div>`:
         `<div class="pill">Start a draft to pick</div>`}
       <button class="btn ghost" onclick="closeModal()">Close</button>
