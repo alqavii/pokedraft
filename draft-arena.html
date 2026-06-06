@@ -784,8 +784,17 @@ function calcTeamCoverage(roster){
 function scoreAndSuggest(roster,budget){
   const{off,def}=calcTeamCoverage(roster);
   const threats=ALL_TYPES.filter(t=>def[t]>=2);
+  const slotsLeft=S.rosterSize-roster.length;
   return POOL
-    .filter(p=>S.drafted[p.id]===undefined&&p.cost<=budget)
+    .filter(p=>{
+      if(S.drafted[p.id]!==undefined||p.cost>budget)return false;
+      if(slotsLeft>1){
+        const avail=POOL.filter(x=>S.drafted[x.id]===undefined&&x.id!==p.id);
+        const minCost=avail.length?Math.min(...avail.map(x=>x.cost)):0;
+        if(budget-p.cost<(slotsLeft-1)*minCost)return false;
+      }
+      return true;
+    })
     .map(p=>{
       let score=0;const reasons=[];
       // Coverage fills: types not yet covered offensively
