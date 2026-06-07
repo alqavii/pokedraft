@@ -1199,7 +1199,8 @@ function toggleFavorite(id){
   if(i>-1)fp.selected.splice(i,1);
   else if(fp.selected.length<2)fp.selected.push(id);
   else{toast("You can only pick 2 favorites","bad");return;}
-  renderFavoritesPicker();
+  renderFavPickPills();
+  renderFavPickGrid();
 }
 function confirmFavorites(){
   const fp=_favPicker();if(!fp)return;
@@ -1220,9 +1221,6 @@ function renderFavoritesPicker(){
   const box=document.getElementById('favoritesPickerBox');
   if(!fp||!box)return;
   const team=S.teams[fp.teamIndex];
-  const q=(document.getElementById("favSearch")?.value||"").toLowerCase();
-  const rows=POOL.filter(p=>!q||p.name.toLowerCase().includes(q))
-    .sort((a,b)=>b.cost-a.cost||a.name.localeCompare(b.name)).slice(0,60);
   box.innerHTML=`
     <div class="card" style="padding:20px;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
@@ -1230,33 +1228,48 @@ function renderFavoritesPicker(){
         <h2 style="margin:0">${team.name} — choose 2 favorite Pokémon</h2>
       </div>
       <p class="sub" style="margin-bottom:10px">Pick any 2 Pokémon this team would love to draft. Teams can overlap on picks — this isn't a reservation. During the draft, these 2 will cost <b style="color:var(--accent2)">+5 points</b> for ${team.name} only (everyone else pays the normal price).</p>
-      <div class="search" style="max-width:360px"><input id="favSearch" placeholder="Search Pokémon…" oninput="renderFavoritesPicker()" value="${q.replace(/"/g,'&quot;')}"></div>
-      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-        ${[0,1].map(i=>{
-          const id=fp.selected[i];const p=id?POOL_BY_ID[id]:null;
-          return `<div class="pill" style="min-width:160px;justify-content:flex-start;gap:8px">${p?`${sprImg(p.pid,'',`style="width:28px;height:28px;object-fit:contain"`)}<b>${p.name}</b>`:`<span style="color:var(--faint)">Favorite ${i+1} — not chosen</span>`}</div>`;
-        }).join('')}
-      </div>
+      <div class="search" style="max-width:360px"><input id="favSearch" placeholder="Search Pokémon…" oninput="renderFavPickGrid()"></div>
+      <div id="favPickPills" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"></div>
       <div style="margin-top:14px;display:flex;gap:10px">
-        <button class="btn" ${fp.selected.length===2?'':'disabled'} onclick="confirmFavorites()">Confirm & ${fp.teamIndex<S.teams.length-1?'next team':'start the draft'} →</button>
+        <button class="btn" id="favConfirmBtn" onclick="confirmFavorites()">Confirm & ${fp.teamIndex<S.teams.length-1?'next team':'start the draft'} →</button>
       </div>
     </div>
-    <div class="grid">
-      ${rows.map(p=>{
-        const sel=fp.selected.includes(p.id);
-        return `<div class="pcard ${sel?'unavail':''}" style="${sel?'box-shadow:0 0 0 2px var(--accent)':''}" onclick="toggleFavorite('${p.id}')">
-          <div class="top">
-            <span class="dx">#${String(p.num).padStart(4,'0')}</span>
-            <span class="gen-badge">G${p.gen}</span>
-            <span class="cost-badge">${p.cost}</span>
-          </div>
-          ${sprImg(p.pid,"spr")}
-          <div class="nm">${p.name}</div>
-          <div class="types">${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join("")}</div>
-          ${sel?'<div class="drafted-tag" style="font-size:11px">★ Chosen as favorite</div>':''}
-        </div>`;
-      }).join('')}
+    <div class="grid" id="favPickGrid"></div>`;
+  renderFavPickPills();
+  renderFavPickGrid();
+}
+function renderFavPickPills(){
+  const fp=_favPicker();
+  const pills=document.getElementById('favPickPills');
+  const btn=document.getElementById('favConfirmBtn');
+  if(!fp||!pills)return;
+  pills.innerHTML=[0,1].map(i=>{
+    const id=fp.selected[i];const p=id?POOL_BY_ID[id]:null;
+    return `<div class="pill" style="min-width:160px;justify-content:flex-start;gap:8px">${p?`${sprImg(p.pid,'',`style="width:28px;height:28px;object-fit:contain"`)}<b>${p.name}</b>`:`<span style="color:var(--faint)">Favorite ${i+1} — not chosen</span>`}</div>`;
+  }).join('');
+  if(btn)btn.disabled=fp.selected.length!==2;
+}
+function renderFavPickGrid(){
+  const fp=_favPicker();
+  const grid=document.getElementById('favPickGrid');
+  if(!fp||!grid)return;
+  const q=(document.getElementById("favSearch")?.value||"").toLowerCase();
+  const rows=POOL.filter(p=>!q||p.name.toLowerCase().includes(q))
+    .sort((a,b)=>b.cost-a.cost||a.name.localeCompare(b.name)).slice(0,60);
+  grid.innerHTML=rows.map(p=>{
+    const sel=fp.selected.includes(p.id);
+    return `<div class="pcard ${sel?'unavail':''}" style="${sel?'box-shadow:0 0 0 2px var(--accent)':''}" onclick="toggleFavorite('${p.id}')">
+      <div class="top">
+        <span class="dx">#${String(p.num).padStart(4,'0')}</span>
+        <span class="gen-badge">G${p.gen}</span>
+        <span class="cost-badge">${p.cost}</span>
+      </div>
+      ${sprImg(p.pid,"spr")}
+      <div class="nm">${p.name}</div>
+      <div class="types">${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join("")}</div>
+      ${sel?'<div class="drafted-tag" style="font-size:11px">★ Chosen as favorite</div>':''}
     </div>`;
+  }).join('');
 }
 
 /* ============ PICK ORDER ============ */
