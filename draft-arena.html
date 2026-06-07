@@ -201,6 +201,15 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
 .rr-match .b-slot{min-height:36px;font-size:12.5px}
 .rr-vs{text-align:center;font-size:10px;color:var(--faint);font-weight:700;letter-spacing:1px}
 
+/* Season */
+.season-week-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:16px 20px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.season-week-meta{flex:1;min-width:200px}
+.season-week-date{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700}
+.season-week-champ{font-size:16px;font-weight:800;margin-top:4px;display:flex;align-items:center;gap:8px}
+.season-week-teams{font-size:12px;color:var(--muted);margin-top:4px}
+.season-empty{text-align:center;padding:50px 20px;color:var(--muted)}
+
 /* Tournament setup */
 .format-choice{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;margin-bottom:8px}
 .format-card{flex:1;min-width:220px;background:var(--panel);border:1.5px solid var(--line);border-radius:14px;
@@ -368,6 +377,7 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
       <button data-view="draft">Live Draft</button>
       <button data-view="teams">Teams</button>
       <button data-view="tournament">Tournament</button>
+      <button data-view="season">Season</button>
     </nav>
   </div>
 </header>
@@ -629,8 +639,19 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
         <div class="kicker" style="margin-bottom:8px">Champion</div>
         <h2 id="champion-name" style="font-size:38px;color:var(--accent);margin-bottom:4px"></h2>
         <p class="sub" id="champion-sub" style="margin:0 auto"></p>
+        <button class="btn sm" id="saveWeekBtn" onclick="saveTournamentWeek()" style="margin-top:16px">💾 Save this week to season</button>
       </div>
     </div>
+  </section>
+
+  <!-- SEASON / LEADERBOARD -->
+  <section id="view-season" class="hidden">
+    <span class="kicker">League History</span>
+    <h1 style="margin-bottom:8px">Season</h1>
+    <p class="sub" style="margin-bottom:20px">Save each week's tournament results to build a running leaderboard across the season. Run a fresh draft and tournament each week, then hit "Save this week to season" once a champion is crowned.</p>
+    <div id="season-leaderboard"></div>
+    <h2 style="margin:28px 0 12px">Saved weeks</h2>
+    <div id="season-weeks"></div>
   </section>
 </main>
 
@@ -918,6 +939,7 @@ const POOL_BY_ID=Object.fromEntries(POOL.map(p=>[p.id,p]));
 const TEAM_COLORS=["#ffd23f","#ff5d73","#46e5a0","#4d90ff","#b259cf","#ff8a4c","#67d6e0","#9bbf2f",
   "#ff8fd2","#5a52d6","#d9434f","#4bc06a","#c4ad6b","#8f9bff","#7166c4","#ffce32"];
 let S=load()||freshState();
+let SEASON=loadSeason();
 
 function freshState(){
   return{
@@ -933,16 +955,19 @@ function freshState(){
 }
 function save(){localStorage.setItem("draftArena", JSON.stringify(S));}
 function load(){try{return JSON.parse(localStorage.getItem("draftArena"))}catch(e){return null}}
+function saveSeason(){localStorage.setItem("draftArenaSeason", JSON.stringify(SEASON));}
+function loadSeason(){try{return JSON.parse(localStorage.getItem("draftArenaSeason"))||{weeks:[]}}catch(e){return{weeks:[]}}}
 function resetAll(){localStorage.removeItem("draftArena");S=freshState();syncSetupInputs();go('home');toast("League reset");}
 
 /* ============ NAV ============ */
 function go(v){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
-  ["home","board","draft","teams","tournament"].forEach(x=>document.getElementById("view-"+x).classList.toggle("hidden",x!==v));
+  ["home","board","draft","teams","tournament","season"].forEach(x=>document.getElementById("view-"+x).classList.toggle("hidden",x!==v));
   if(v==="board")renderBoard();
   if(v==="draft")renderDraft();
   if(v==="teams")renderTeamsFull();
   if(v==="tournament"&&T.teams.length)renderTournament();
+  if(v==="season")renderSeason();
   window.scrollTo(0,0);
 }
 document.getElementById("nav").addEventListener("click",e=>{if(e.target.dataset.view)go(e.target.dataset.view)});
@@ -1428,7 +1453,7 @@ function importDraftFromFile(input){
 }
 
 /* ============ TOURNAMENT ============ */
-let T={ready:false,format:null,teams:[],rounds:[],rrRounds:[],sourceState:null,history:[]};
+let T={ready:false,format:null,teams:[],rounds:[],rrRounds:[],sourceState:null,history:[],savedThisRun:false};
 
 function _teamStrength(team){
   const pts={AG:20,Uber:16,OU:12,UU:9,RU:7,NU:5,PU:3,NFE:2,Untiered:1};
@@ -1466,7 +1491,7 @@ function loadTeamsForTournament(src){
   const sorted=[...active].sort((a,b)=>_teamStrength(b)-_teamStrength(a));
   T.sourceState=src;
   T.teams=sorted.map((t,i)=>({name:t.name,color:t.color,roster:t.roster,seed:i+1,strength:_teamStrength(t)}));
-  T.ready=false;T.format=null;T.rounds=[];T.rrRounds=[];T.history=[];
+  T.ready=false;T.format=null;T.rounds=[];T.rrRounds=[];T.history=[];T.savedThisRun=false;
   go('tournament');
   renderTournamentSetup();
 }
@@ -1484,6 +1509,7 @@ function randomizeSeeds(){
 function chooseFormat(fmt){
   T.format=fmt;
   T.history=[];
+  T.savedThisRun=false;
   if(fmt==='single')_buildSingleElim();
   else _buildRoundRobin();
   T.ready=true;
@@ -1530,7 +1556,7 @@ function _buildRoundRobin(){
 }
 
 function resetTournament(){
-  T.ready=false;T.format=null;T.rounds=[];T.rrRounds=[];T.history=[];
+  T.ready=false;T.format=null;T.rounds=[];T.rrRounds=[];T.history=[];T.savedThisRun=false;
   renderTournamentSetup();
   toast('Tournament reset — choose a format to start again','win');
 }
@@ -1596,6 +1622,7 @@ function _checkChampion(){
     document.getElementById('champion-name').textContent=name;
     document.getElementById('champion-sub').textContent=`Seed #${team?.seed} · Strength score ${team?.strength} · ${team?.roster?.length} Pokémon`;
     box.style.display='';
+    _syncSaveButton();
   }else{box.style.display='none';}
 }
 
@@ -1692,7 +1719,130 @@ function _checkRRChampion(standings){
     document.getElementById('champion-name').textContent=top.name;
     document.getElementById('champion-sub').textContent=`${top.w}W – ${top.l}L · Seed #${team?.seed} · Strength score ${team?.strength}`;
     box.style.display='';
+    _syncSaveButton();
   }else{box.style.display='none';}
+}
+
+/* ============ SEASON ============ */
+function _syncSaveButton(){
+  const btn=document.getElementById('saveWeekBtn');
+  if(!btn)return;
+  if(T.savedThisRun){
+    btn.textContent='✓ Saved to season';
+    btn.disabled=true;
+  }else{
+    btn.textContent='💾 Save this week to season';
+    btn.disabled=false;
+  }
+}
+
+function _currentChampionName(){
+  if(T.format==='single'){
+    const final=T.rounds[T.rounds.length-1]?.[0];
+    if(final?.winner)return final.winner==='a'?final.a:final.b;
+    return null;
+  }
+  if(T.format==='roundrobin'){
+    const allDone=T.rrRounds.length&&T.rrRounds.every(round=>round.every(m=>m.winner));
+    if(!allDone)return null;
+    return _rrStandings()[0]?.name||null;
+  }
+  return null;
+}
+
+function _flattenTournamentResults(){
+  const matches=[];
+  const rounds=T.format==='single'?T.rounds:T.rrRounds;
+  rounds.forEach(round=>round.forEach(m=>{
+    if(!m.winner||m.bye)return;
+    if(!m.a||!m.b)return;
+    matches.push({a:m.a,b:m.b,winner:m.winner});
+  }));
+  return matches;
+}
+
+function saveTournamentWeek(){
+  const champion=_currentChampionName();
+  if(!champion||T.savedThisRun)return;
+  SEASON.weeks.push({
+    id:Date.now(),
+    date:new Date().toISOString(),
+    format:T.format,
+    teams:T.teams.map(t=>({name:t.name,color:t.color,seed:t.seed,strength:t.strength,rosterSize:t.roster.length})),
+    champion,
+    matches:_flattenTournamentResults()
+  });
+  saveSeason();
+  T.savedThisRun=true;
+  _syncSaveButton();
+  toast(`${champion} crowned — week saved to season!`,'win');
+  if(!document.getElementById('view-season').classList.contains('hidden'))renderSeason();
+}
+
+function deleteSeasonWeek(id){
+  confirmDialog('Delete this week from the season? This cannot be undone.',()=>{
+    SEASON.weeks=SEASON.weeks.filter(w=>w.id!==id);
+    saveSeason();
+    renderSeason();
+    toast('Week removed from season');
+  });
+}
+
+function _seasonLeaderboard(){
+  const stats={};
+  SEASON.weeks.forEach(week=>{
+    week.teams.forEach(t=>{
+      if(!stats[t.name])stats[t.name]={name:t.name,color:t.color,weeksPlayed:0,championships:0,wins:0,losses:0};
+      stats[t.name].weeksPlayed++;
+    });
+    if(week.champion&&stats[week.champion])stats[week.champion].championships++;
+    week.matches.forEach(m=>{
+      const winName=m.winner==='a'?m.a:m.b;
+      const loseName=m.winner==='a'?m.b:m.a;
+      if(stats[winName])stats[winName].wins++;
+      if(stats[loseName])stats[loseName].losses++;
+    });
+  });
+  return Object.values(stats).map(s=>({...s,winPct:s.wins+s.losses?Math.round(s.wins/(s.wins+s.losses)*100):0}))
+    .sort((a,b)=>b.championships-a.championships||b.winPct-a.winPct||b.wins-a.wins||a.name.localeCompare(b.name));
+}
+
+function renderSeason(){
+  const lb=_seasonLeaderboard();
+  const lbEl=document.getElementById('season-leaderboard');
+  if(!lb.length){
+    lbEl.innerHTML='';
+  }else{
+    lbEl.innerHTML=`
+      <table class="standings">
+        <thead><tr><th>#</th><th>Team</th><th>🏆</th><th>W</th><th>L</th><th>Win %</th><th>Weeks</th></tr></thead>
+        <tbody>
+          ${lb.map((s,i)=>`<tr>
+            <td>${i+1}</td>
+            <td><span class="b-dot" style="background:${s.color}"></span>${s.name}</td>
+            <td>${s.championships}</td>
+            <td>${s.wins}</td><td>${s.losses}</td><td>${s.winPct}%</td><td>${s.weeksPlayed}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+  const weeksEl=document.getElementById('season-weeks');
+  if(!SEASON.weeks.length){
+    weeksEl.innerHTML='<div class="season-empty">No weeks saved yet — finish a tournament and hit "Save this week to season" to start your league history.</div>';
+    return;
+  }
+  const sorted=[...SEASON.weeks].sort((a,b)=>b.id-a.id);
+  weeksEl.innerHTML=sorted.map(w=>{
+    const champTeam=w.teams.find(t=>t.name===w.champion);
+    return `<div class="season-week-card">
+      <div class="season-week-meta">
+        <div class="season-week-date">${new Date(w.date).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})} · ${w.format==='single'?'Single Elimination':'Round Robin'}</div>
+        <div class="season-week-champ"><span class="b-dot" style="background:${champTeam?.color||'#fff'}"></span>🏆 ${w.champion}</div>
+        <div class="season-week-teams">${w.teams.map(t=>t.name).join(' · ')}</div>
+      </div>
+      <button class="btn ghost sm" onclick="deleteSeasonWeek(${w.id})">🗑 Delete</button>
+    </div>`;
+  }).join('');
 }
 
 function renderTournamentBracket(){
