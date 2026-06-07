@@ -676,6 +676,15 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
 <div class="scrim" id="weekDetailScrim" onclick="if(event.target===this)closeWeekDetail()">
   <div class="modal" id="weekDetailModal" style="max-width:880px;max-height:88vh;overflow:auto"></div>
 </div>
+<div class="scrim" id="replayScrim" onclick="if(event.target===this)closeReplay()">
+  <div class="modal" id="replayModal" style="max-width:1100px;width:94vw;height:88vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
+    <div class="mhead" style="padding:14px 18px;flex:0 0 auto">
+      <div id="replayTitle" style="font-weight:800">Replay</div>
+      <button class="x" onclick="closeReplay()">×</button>
+    </div>
+    <iframe id="replayFrame" style="flex:1 1 auto;border:0;width:100%;background:#fff" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 <div class="confirm-overlay" id="confirmOverlay" onclick="if(event.target===this)closeConfirm()">
   <div class="confirm-box">
@@ -1408,7 +1417,7 @@ function openModal(id){
   fetchAndRenderSmogonSet(p);
 }
 function closeModal(){document.getElementById("scrim").classList.remove("show");}
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();closeWeekDetail();}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();closeWeekDetail();closeReplay();}});
 
 /* ============ TEAMS FULL ============ */
 function renderTeamsFull(){
@@ -1710,15 +1719,25 @@ const _replayCache={};
 function _replayBtnHtml(key,replay){
   if(!replay||!replay.html)return'';
   _replayCache[key]=replay.html;
-  return`<button class="btn ghost sm" style="margin-top:6px;width:100%;display:flex;align-items:center;justify-content:center;gap:6px" onclick="event.stopPropagation();openReplay('${key}')" title="${(replay.filename||'replay').replace(/"/g,'&quot;')}">▶ Watch replay</button>`;
+  const fname=(replay.filename||'replay').replace(/"/g,'&quot;');
+  const fnameJs=fname.replace(/'/g,"\\'");
+  return`<button class="btn ghost sm" style="margin-top:6px;width:100%;display:flex;align-items:center;justify-content:center;gap:6px" onclick="event.stopPropagation();openReplay('${key}','${fnameJs}')" title="${fname}">▶ Watch replay</button>`;
 }
-function openReplay(key){
+let _replayUrl=null;
+function openReplay(key,title){
   const html=_replayCache[key];
   if(!html){toast('Replay not available for this match','warn');return;}
+  if(_replayUrl)URL.revokeObjectURL(_replayUrl);
   const blob=new Blob([html],{type:'text/html'});
-  const url=URL.createObjectURL(blob);
-  window.open(url,'_blank');
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  _replayUrl=URL.createObjectURL(blob);
+  document.getElementById('replayTitle').textContent=title||'Replay';
+  document.getElementById('replayFrame').src=_replayUrl;
+  document.getElementById('replayScrim').classList.add('show');
+}
+function closeReplay(){
+  document.getElementById('replayScrim').classList.remove('show');
+  document.getElementById('replayFrame').src='about:blank';
+  if(_replayUrl){URL.revokeObjectURL(_replayUrl);_replayUrl=null;}
 }
 
 function _clearDownstream(r,m){
