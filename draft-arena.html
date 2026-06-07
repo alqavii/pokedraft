@@ -448,6 +448,10 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
               <button class="chip" data-order="linear" onclick="setOrder(this,'linear')">Linear</button>
             </div>
           </div>
+          <div class="field">
+            <label>House rules</label>
+            <label class="pill" style="display:inline-flex"><input type="checkbox" id="favoritesTax" style="accent-color:var(--accent)"> Favorites tax — each team picks 2 favorites before drafting; those cost +5 for that team only</label>
+          </div>
         </div>
         <div>
           <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Team names</label>
@@ -461,6 +465,14 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
     </div>
 
     <p class="source-note">Pokémon data (types, base stats, abilities) sourced from the Smogon / Pokémon Showdown canonical dataset; sprites served from the Pokémon Showdown sprite CDN. Champions roster cross-checked against Bulbapedia's <i>List of Pokémon in Pokémon Champions</i>. Costs are derived from base-stat totals plus competitive tier adjustments, in the style of a draft-league tier sheet.</p>
+  </section>
+
+  <!-- FAVORITES PICKER (pre-draft, "favorites tax" house rule) -->
+  <section id="view-favorites" class="hidden">
+    <span class="kicker">House rule</span>
+    <h1>Pick your favorites</h1>
+    <p class="sub" style="margin-bottom:18px">Each team picks 2 Pokémon they'd love to land before the draft begins. Picks can overlap between teams. Once the draft starts, a team's chosen favorites cost +5 points — only for them.</p>
+    <div id="favoritesPickerBox"></div>
   </section>
 
   <!-- DRAFT BOARD -->
@@ -1020,22 +1032,23 @@ function calcTeamCoverage(roster){
 }
 
 /* ============ AUTO-SUGGEST ============ */
-function scoreAndSuggest(roster,budget){
+function scoreAndSuggest(roster,budget,ti){
   const{off,def}=calcTeamCoverage(roster);
   const threats=ALL_TYPES.filter(t=>def[t]>=2);
   const slotsLeft=S.rosterSize-roster.length;
   return POOL
     .filter(p=>{
-      if(S.drafted[p.id]!==undefined||p.cost>budget)return false;
+      if(S.drafted[p.id]!==undefined||effectiveCost(p,ti)>budget)return false;
       if(slotsLeft>1){
         const avail=POOL.filter(x=>S.drafted[x.id]===undefined&&x.id!==p.id);
-        const minCost=avail.length?Math.min(...avail.map(x=>x.cost)):0;
-        if(budget-p.cost<(slotsLeft-1)*minCost)return false;
+        const minCost=avail.length?Math.min(...avail.map(x=>effectiveCost(x,ti))):0;
+        if(budget-effectiveCost(p,ti)<(slotsLeft-1)*minCost)return false;
       }
       return true;
     })
     .map(p=>{
       let score=0;const reasons=[];
+      const cost=effectiveCost(p,ti);
       // Coverage fills: types not yet covered offensively
       const fills=new Set();
       p.types.forEach(atk=>(TYPE_SE[atk]||[]).forEach(dt=>{if(off[dt]===0)fills.add(dt);}));
@@ -1050,11 +1063,11 @@ function scoreAndSuggest(roster,budget){
       // Power bonus on absolute scale (not divided by cost)
       if(p.bst>=580)score+=14;else if(p.bst>=540)score+=8;else if(p.bst>=500)score+=4;
       // Budget fit: reward meaningful spend; penalise ultra-cheap picks when budget is healthy
-      const pctB=p.cost/budget;
+      const pctB=cost/budget;
       if(pctB>=0.25)score+=8;
       else if(pctB>=0.12)score+=3;
-      else if(p.cost<=3&&budget>25)score-=18;
-      else if(p.cost<=5&&budget>35)score-=8;
+      else if(cost<=3&&budget>25)score-=18;
+      else if(cost<=5&&budget>35)score-=8;
       // Coverage breadth (even for already-covered types)
       const breadth=new Set();
       p.types.forEach(t=>(TYPE_SE[t]||[]).forEach(d=>breadth.add(d)));
@@ -1106,12 +1119,13 @@ function freshState(){
   return{
     started:false,ended:false,order:"snake",
     budget:100,rosterSize:10,
+    favoritesTax:false,favoritesPicker:null,
     teams:[
       {name:"Team Alpha"},{name:"Team Bravo"},{name:"Team Charlie"},{name:"Team Delta"}
-    ].map((t,i)=>({...t,color:TEAM_COLORS[i],budgetLeft:100,roster:[]})),
+    ].map((t,i)=>({...t,color:TEAM_COLORS[i],budgetLeft:100,roster:[],favorites:[]})),
     drafted:{}, // id -> teamIndex
     turnPtr:0,   // index into computed pick order
-    history:[]   // {id, teamIndex}
+    history:[]   // {id, teamIndex, cost}
   };
 }
 function save(){localStorage.setItem("draftArena", JSON.stringify(S));}
@@ -1123,9 +1137,10 @@ function resetAll(){localStorage.removeItem("draftArena");S=freshState();syncSet
 /* ============ NAV ============ */
 function go(v){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
-  ["home","board","draft","teams","tournament","season"].forEach(x=>document.getElementById("view-"+x).classList.toggle("hidden",x!==v));
+  ["home","board","draft","teams","tournament","season","favorites"].forEach(x=>document.getElementById("view-"+x).classList.toggle("hidden",x!==v));
   if(v==="board")renderBoard();
   if(v==="draft")renderDraft();
+  if(v==="favorites")renderFavoritesPicker();
   if(v==="teams")renderTeamsFull();
   if(v==="tournament"&&T.teams.length)renderTournament();
   if(v==="season")renderSeason();
@@ -1139,6 +1154,7 @@ function syncSetupInputs(){
   document.getElementById("numTeams").value=S.teams.length;
   document.getElementById("budget").value=S.budget;
   document.getElementById("rosterSize").value=S.rosterSize;
+  document.getElementById("favoritesTax").checked=!!S.favoritesTax;
   renderTeamEditor();
 }
 function renderTeamEditor(){
@@ -1161,9 +1177,86 @@ function startDraft(){
   S.budget=parseInt(document.getElementById("budget").value);
   S.rosterSize=parseInt(document.getElementById("rosterSize").value);
   if(!(n>=2)){toast("Need at least 2 teams","bad");return;}
-  S.teams=S.teams.slice(0,n).map((t,i)=>({name:t.name||("Team "+(i+1)),color:TEAM_COLORS[i%16],budgetLeft:S.budget,roster:[]}));
-  S.drafted={};S.history=[];S.turnPtr=0;S.started=true;S.ended=false;
-  save();go('draft');toast("Draft started — "+S.teams[0].name+" is on the clock","win");
+  S.favoritesTax=document.getElementById("favoritesTax").checked;
+  S.teams=S.teams.slice(0,n).map((t,i)=>({name:t.name||("Team "+(i+1)),color:TEAM_COLORS[i%16],budgetLeft:S.budget,roster:[],favorites:[]}));
+  S.drafted={};S.history=[];S.turnPtr=0;S.ended=false;
+  if(S.favoritesTax){
+    S.started=false;
+    S.favoritesPicker={teamIndex:0,selected:[]};
+    save();go('favorites');
+    toast(S.teams[0].name+" — pick your 2 favorite Pokémon","win");
+  }else{
+    S.started=true;S.favoritesPicker=null;
+    save();go('draft');toast("Draft started — "+S.teams[0].name+" is on the clock","win");
+  }
+}
+
+/* ============ FAVORITES PICKER (pre-draft, when "favorites tax" house rule is on) ============ */
+function _favPicker(){return S.favoritesPicker;}
+function toggleFavorite(id){
+  const fp=_favPicker();if(!fp)return;
+  const i=fp.selected.indexOf(id);
+  if(i>-1)fp.selected.splice(i,1);
+  else if(fp.selected.length<2)fp.selected.push(id);
+  else{toast("You can only pick 2 favorites","bad");return;}
+  renderFavoritesPicker();
+}
+function confirmFavorites(){
+  const fp=_favPicker();if(!fp)return;
+  if(fp.selected.length!==2){toast("Pick exactly 2 Pokémon first","bad");return;}
+  S.teams[fp.teamIndex].favorites=[...fp.selected];
+  if(fp.teamIndex<S.teams.length-1){
+    fp.teamIndex++;fp.selected=[];
+    save();renderFavoritesPicker();
+    toast(S.teams[fp.teamIndex].name+" — pick your 2 favorite Pokémon","win");
+  }else{
+    S.favoritesPicker=null;S.started=true;
+    save();go('draft');
+    toast("All favorites locked in — draft started, "+S.teams[0].name+" is on the clock","win");
+  }
+}
+function renderFavoritesPicker(){
+  const fp=_favPicker();
+  const box=document.getElementById('favoritesPickerBox');
+  if(!fp||!box)return;
+  const team=S.teams[fp.teamIndex];
+  const q=(document.getElementById("favSearch")?.value||"").toLowerCase();
+  const rows=POOL.filter(p=>!q||p.name.toLowerCase().includes(q))
+    .sort((a,b)=>b.cost-a.cost||a.name.localeCompare(b.name)).slice(0,60);
+  box.innerHTML=`
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <div class="dot" style="background:${team.color}">${fp.teamIndex+1}</div>
+        <h2 style="margin:0">${team.name} — choose 2 favorite Pokémon</h2>
+      </div>
+      <p class="sub" style="margin-bottom:10px">Pick any 2 Pokémon this team would love to draft. Teams can overlap on picks — this isn't a reservation. During the draft, these 2 will cost <b style="color:var(--accent2)">+5 points</b> for ${team.name} only (everyone else pays the normal price).</p>
+      <div class="search" style="max-width:360px"><input id="favSearch" placeholder="Search Pokémon…" oninput="renderFavoritesPicker()" value="${q.replace(/"/g,'&quot;')}"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        ${[0,1].map(i=>{
+          const id=fp.selected[i];const p=id?POOL_BY_ID[id]:null;
+          return `<div class="pill" style="min-width:160px;justify-content:flex-start;gap:8px">${p?`${sprImg(p.pid,'',`style="width:28px;height:28px;object-fit:contain"`)}<b>${p.name}</b>`:`<span style="color:var(--faint)">Favorite ${i+1} — not chosen</span>`}</div>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px">
+        <button class="btn" ${fp.selected.length===2?'':'disabled'} onclick="confirmFavorites()">Confirm & ${fp.teamIndex<S.teams.length-1?'next team':'start the draft'} →</button>
+      </div>
+    </div>
+    <div class="grid">
+      ${rows.map(p=>{
+        const sel=fp.selected.includes(p.id);
+        return `<div class="pcard ${sel?'unavail':''}" style="${sel?'box-shadow:0 0 0 2px var(--accent)':''}" onclick="toggleFavorite('${p.id}')">
+          <div class="top">
+            <span class="dx">#${String(p.num).padStart(4,'0')}</span>
+            <span class="gen-badge">G${p.gen}</span>
+            <span class="cost-badge">${p.cost}</span>
+          </div>
+          ${sprImg(p.pid,"spr")}
+          <div class="nm">${p.name}</div>
+          <div class="types">${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join("")}</div>
+          ${sel?'<div class="drafted-tag" style="font-size:11px">★ Chosen as favorite</div>':''}
+        </div>`;
+      }).join('')}
+    </div>`;
 }
 
 /* ============ PICK ORDER ============ */
@@ -1181,16 +1274,24 @@ function currentTeamIndex(){const o=pickOrder();return S.turnPtr<o.length?o[S.tu
 function currentRound(){return Math.floor(S.turnPtr/S.teams.length)+1;}
 
 /* ============ DRAFTING ============ */
+// A team's "favorite" picks (chosen pre-draft when the favorites tax setting is on)
+// cost 5 more for that team only — everyone else still pays the listed price.
+function effectiveCost(p,ti){
+  const t=ti!==null&&ti!==undefined?S.teams[ti]:null;
+  if(S.favoritesTax&&t&&t.favorites&&t.favorites.includes(p.id))return p.cost+5;
+  return p.cost;
+}
 function canDraft(p,ti){
   if(S.drafted[p.id]!==undefined)return"taken";
-  if(p.cost>S.teams[ti].budgetLeft)return"budget";
+  const cost=effectiveCost(p,ti);
+  if(cost>S.teams[ti].budgetLeft)return"budget";
   if(S.teams[ti].roster.length>=S.rosterSize)return"full";
   // Infeasibility: after this pick, can remaining slots still be filled?
   const slotsLeft=S.rosterSize-S.teams[ti].roster.length;
   if(slotsLeft>1){
     const avail=POOL.filter(x=>S.drafted[x.id]===undefined&&x.id!==p.id);
-    const minCost=avail.length?Math.min(...avail.map(x=>x.cost)):0;
-    if(S.teams[ti].budgetLeft-p.cost<(slotsLeft-1)*minCost)return"infeasible";
+    const minCost=avail.length?Math.min(...avail.map(x=>effectiveCost(x,ti))):0;
+    if(S.teams[ti].budgetLeft-cost<(slotsLeft-1)*minCost)return"infeasible";
   }
   return"ok";
 }
@@ -1200,15 +1301,16 @@ function draftPick(id){
   if(chk==="taken"){toast("Already drafted","bad");return;}
   if(chk==="budget"){toast(S.teams[ti].name+" can't afford "+p.name,"bad");return;}
   if(chk==="infeasible"){toast("Can't pick — wouldn't leave enough budget to fill the roster","bad");return;}
+  const cost=effectiveCost(p,ti);
   S.drafted[id]=ti;
   S.teams[ti].roster.push(id);
-  S.teams[ti].budgetLeft-=p.cost;
-  S.history.push({id,teamIndex:ti});
+  S.teams[ti].budgetLeft-=cost;
+  S.history.push({id,teamIndex:ti,cost});
   advanceTurn();
   save();
   closeModal();
   renderDraft();
-  toast(S.teams[ti].name+" drafted "+p.name+" (−"+p.cost+")","win");
+  toast(S.teams[ti].name+" drafted "+p.name+" (−"+cost+")"+(cost>p.cost?" · favorite tax +5":""),"win");
 }
 function advanceTurn(){
   const o=pickOrder();
@@ -1230,7 +1332,7 @@ function undoPick(){
   delete S.drafted[last.id];
   const t=S.teams[last.teamIndex];
   t.roster=t.roster.filter(x=>x!==last.id);
-  t.budgetLeft+=POOL_BY_ID[last.id].cost;
+  t.budgetLeft+=(last.cost!==undefined?last.cost:POOL_BY_ID[last.id].cost);
   // recompute pointer: pointer should land back on the team that just lost a pick
   const o=pickOrder();
   // find ptr position of that pick = number of total picks made
@@ -1497,7 +1599,7 @@ function renderPickGrid(){
     if(q&&!p.name.toLowerCase().includes(q))return false;
     const taken=S.drafted[p.id]!==undefined;
     if(hideTaken&&taken)return false;
-    if(draftState.filter==="afford"&&(taken||p.cost>budget))return false;
+    if(draftState.filter==="afford"&&(taken||effectiveCost(p,ti)>budget))return false;
     if(draftState.filter==="champ"&&!p.champions)return false;
     if(draftState.types.length&&!draftState.types.every(t=>p.types.includes(t)))return false;
     if(draftState.tier&&p.tier!==draftState.tier)return false;
@@ -1518,22 +1620,24 @@ function renderPickGrid(){
   if(!rows.length){grid.innerHTML='<div class="empty-state">No Pokémon match.</div>';return;}
   // Pre-compute infeasibility: cheapest undrafted pick available
   const _avail=POOL.filter(x=>S.drafted[x.id]===undefined);
-  const _minCost=_avail.length?Math.min(..._avail.map(x=>x.cost)):0;
+  const _minCost=_avail.length?Math.min(..._avail.map(x=>effectiveCost(x,ti))):0;
   const slotsLeft=ti!==null?S.rosterSize-S.teams[ti].roster.length:0;
   grid.innerHTML=rows.map(p=>{
     const taken=S.drafted[p.id];
     const owner=taken!==undefined?S.teams[taken]:null;
-    const unaffordable=ti!==null&&!owner&&p.cost>budget;
+    const cost=effectiveCost(p,ti);
+    const isFavorite=cost>p.cost;
+    const unaffordable=ti!==null&&!owner&&cost>budget;
     // Infeasible: picking this would leave too little budget to fill remaining slots
     const infeasible=!owner&&!unaffordable&&ti!==null&&slotsLeft>1&&
-      (budget-p.cost)<(slotsLeft-1)*_minCost;
+      (budget-cost)<(slotsLeft-1)*_minCost;
     const cls=owner?"unavail":unaffordable?"toopricey":infeasible?"tooexp":"";
     const onclick=(!owner&&!unaffordable&&!infeasible&&!S.ended)?`onclick="draftPick('${p.id}')"`:"";
     return `<div class="pcard ${cls}" ${onclick}>
       <div class="top">
         <span class="dx">#${String(p.num).padStart(4,'0')}</span>
         <span class="gen-badge">G${p.gen}</span>
-        <span class="cost-badge">${p.cost}</span>
+        <span class="cost-badge"${isFavorite?` title="Your favorite — costs +5 for your team"`:''}>${cost}${isFavorite?'★':''}</span>
       </div>
       ${sprImg(p.pid,"spr")}
       <div class="nm">${p.name}</div>
@@ -1576,7 +1680,7 @@ function renderAnalysisPanel(){
       </div>`).join('')
     :`<span style="color:var(--good);font-size:13px;font-weight:600">No shared weaknesses yet</span>`;
   // Suggestions
-  const picks=scoreAndSuggest(team.roster,team.budgetLeft);
+  const picks=scoreAndSuggest(team.roster,team.budgetLeft,ti);
   document.getElementById('suggestCards').innerHTML=picks.length
     ?picks.map((s,i)=>`<div class="suggestion-card" onclick="draftPick('${s.p.id}')">
         <div class="sug-rank">#${i+1}</div>
@@ -1587,7 +1691,7 @@ function renderAnalysisPanel(){
             <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">
               ${s.p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)};font-size:10px">${t}</span>`).join('')}
             </div>
-            <div style="margin-top:4px;font-size:11px;color:var(--muted)">Cost <b style="color:var(--accent)">${s.p.cost}</b> · BST ${s.p.bst}</div>
+            <div style="margin-top:4px;font-size:11px;color:var(--muted)">Cost <b style="color:var(--accent)">${effectiveCost(s.p,ti)}</b>${effectiveCost(s.p,ti)>s.p.cost?' <span style="color:var(--accent2)">(favorite +5)</span>':''} · BST ${s.p.bst}</div>
           </div>
         </div>
         <div class="sug-reasons">
@@ -1611,11 +1715,13 @@ function openModal(id){
   const p=POOL_BY_ID[id];const ti=currentTeamIndex();
   const taken=S.drafted[id];const owner=taken!==undefined?S.teams[taken]:null;
   const statColors=["#46e5a0","#ff5d73","#ffce32","#4d90ff","#b259cf","#67d6e0"];
+  const mCost=effectiveCost(p,ti);
+  const isFavorite=mCost>p.cost;
   const _mAvail=POOL.filter(x=>S.drafted[x.id]===undefined&&x.id!==p.id);
-  const _mMin=_mAvail.length?Math.min(..._mAvail.map(x=>x.cost)):0;
+  const _mMin=_mAvail.length?Math.min(..._mAvail.map(x=>effectiveCost(x,ti))):0;
   const _mSlots=ti!==null?S.rosterSize-S.teams[ti].roster.length:0;
-  const _mInfeasible=ti!==null&&_mSlots>1&&(S.teams[ti].budgetLeft-p.cost)<(_mSlots-1)*_mMin;
-  const canPick=S.started&&!S.ended&&!owner&&ti!==null&&p.cost<=S.teams[ti].budgetLeft&&!_mInfeasible;
+  const _mInfeasible=ti!==null&&_mSlots>1&&(S.teams[ti].budgetLeft-mCost)<(_mSlots-1)*_mMin;
+  const canPick=S.started&&!S.ended&&!owner&&ti!==null&&mCost<=S.teams[ti].budgetLeft&&!_mInfeasible;
   document.getElementById("modal").innerHTML=`
     <div class="mhead">
       ${sprImg(p.pid,"")}
@@ -1623,7 +1729,7 @@ function openModal(id){
         <div class="dx" style="font-family:'Space Mono'">#${String(p.num).padStart(4,'0')} · Gen ${p.gen}</div>
         <h2 style="margin:2px 0 8px">${p.name}</h2>
         <div>${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join(" ")}
-        <span class="cost-badge" style="margin-left:8px">Cost ${p.cost}</span></div>
+        <span class="cost-badge" style="margin-left:8px"${isFavorite?` title="Your favorite — costs +5 for your team"`:''}>Cost ${mCost}${isFavorite?' ★ (favorite +5)':''}</span></div>
       </div>
       <button class="x" onclick="closeModal()">×</button>
     </div>
@@ -1647,7 +1753,7 @@ function openModal(id){
     </div>
     <div class="modal-foot">
       ${owner?`<div class="pill" style="color:var(--accent2)">● Drafted by ${owner.name}</div>`:
-        canPick?`<button class="btn" style="flex:1" onclick="draftPick('${p.id}')">Draft to ${S.teams[ti].name} (−${p.cost})</button>`:
+        canPick?`<button class="btn" style="flex:1" onclick="draftPick('${p.id}')">Draft to ${S.teams[ti].name} (−${mCost})</button>`:
         (S.started&&!S.ended&&ti!==null&&_mInfeasible)?`<div class="pill" style="color:var(--accent2)">Roster can't be completed if picked</div>`:
         (S.started&&!S.ended&&ti!==null)?`<div class="pill" style="color:var(--warn)">Over ${S.teams[ti].name}'s budget</div>`:
         `<div class="pill">Start a draft to pick</div>`}
@@ -2549,7 +2655,7 @@ document.getElementById("stat-champ").textContent=POOL.filter(p=>p.champions).le
 syncSetupInputs();
 initHeroArt();
 // if a draft is mid-flight, default to draft view
-if(S.started&&!S.ended)go('draft');else go('home');
+if(S.started&&!S.ended)go('draft');else if(S.favoritesPicker)go('favorites');else go('home');
 // kick off Smogon tier data fetch; updates board tiers + build badges when ready
 _preloadSmogon();
 initSmogonTiers();
