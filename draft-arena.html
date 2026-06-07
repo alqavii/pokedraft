@@ -649,6 +649,7 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
     <span class="kicker">League History</span>
     <h1 style="margin-bottom:8px">Season</h1>
     <p class="sub" style="margin-bottom:20px">Save each week's tournament results to build a running leaderboard across the season. Run a fresh draft and tournament each week, then hit "Save this week to season" once a champion is crowned.</p>
+    <div id="season-leaderboard-head"></div>
     <div id="season-leaderboard"></div>
     <h2 style="margin:28px 0 12px">Saved weeks</h2>
     <div id="season-weeks"></div>
@@ -661,6 +662,9 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
 
 <div class="scrim" id="scrim" onclick="if(event.target===this)closeModal()">
   <div class="modal" id="modal"></div>
+</div>
+<div class="scrim" id="weekDetailScrim" onclick="if(event.target===this)closeWeekDetail()">
+  <div class="modal" id="weekDetailModal" style="max-width:880px;max-height:88vh;overflow:auto"></div>
 </div>
 <div class="toast" id="toast"></div>
 <div class="confirm-overlay" id="confirmOverlay" onclick="if(event.target===this)closeConfirm()">
@@ -1383,7 +1387,7 @@ function openModal(id){
   fetchAndRenderSmogonSet(p);
 }
 function closeModal(){document.getElementById("scrim").classList.remove("show");}
-document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();closeWeekDetail();}});
 
 /* ============ TEAMS FULL ============ */
 function renderTeamsFull(){
@@ -1768,7 +1772,7 @@ function saveTournamentWeek(){
     id:Date.now(),
     date:new Date().toISOString(),
     format:T.format,
-    teams:T.teams.map(t=>({name:t.name,color:t.color,seed:t.seed,strength:t.strength,rosterSize:t.roster.length})),
+    teams:T.teams.map(t=>({name:t.name,color:t.color,seed:t.seed,strength:t.strength,roster:t.roster})),
     champion,
     matches:_flattenTournamentResults()
   });
@@ -1810,6 +1814,8 @@ function _seasonLeaderboard(){
 function renderSeason(){
   const lb=_seasonLeaderboard();
   const lbEl=document.getElementById('season-leaderboard');
+  const lbHead=document.getElementById('season-leaderboard-head');
+  if(lbHead)lbHead.innerHTML=SEASON.weeks.length?`<button class="btn ghost sm" onclick="exportSeason()" style="margin-bottom:14px">⬇ Export whole season</button>`:'';
   if(!lb.length){
     lbEl.innerHTML='';
   }else{
@@ -1840,10 +1846,92 @@ function renderSeason(){
         <div class="season-week-champ"><span class="b-dot" style="background:${champTeam?.color||'#fff'}"></span>🏆 ${w.champion}</div>
         <div class="season-week-teams">${w.teams.map(t=>t.name).join(' · ')}</div>
       </div>
-      <button class="btn ghost sm" onclick="deleteSeasonWeek(${w.id})">🗑 Delete</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost sm" onclick="viewWeekDetail(${w.id})">🔍 View details</button>
+        <button class="btn ghost sm" onclick="exportSeasonWeek(${w.id})">⬇ Export</button>
+        <button class="btn ghost sm" onclick="deleteSeasonWeek(${w.id})">🗑 Delete</button>
+      </div>
     </div>`;
   }).join('');
 }
+
+/* ---- Export ---- */
+function _downloadJSON(obj,filename){
+  const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  a.click();URL.revokeObjectURL(a.href);
+}
+function exportSeasonWeek(id){
+  const week=SEASON.weeks.find(w=>w.id===id);
+  if(!week)return;
+  _downloadJSON({v:1,exported:new Date().toISOString(),week},`pokedraft-week-${id}.json`);
+  toast('Week exported','win');
+}
+function exportSeason(){
+  if(!SEASON.weeks.length){toast('No saved weeks to export','warn');return;}
+  _downloadJSON({v:1,exported:new Date().toISOString(),season:SEASON},`pokedraft-season-${Date.now()}.json`);
+  toast('Season exported','win');
+}
+
+/* ---- Week detail modal ---- */
+function viewWeekDetail(id){
+  const w=SEASON.weeks.find(x=>x.id===id);
+  if(!w)return;
+  const champTeam=w.teams.find(t=>t.name===w.champion);
+  document.getElementById('weekDetailModal').innerHTML=`
+    <div class="mhead">
+      <div>
+        <div class="dx" style="font-family:'Space Mono'">${new Date(w.date).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})} · ${w.format==='single'?'Single Elimination':'Round Robin'}</div>
+        <h2 style="margin:2px 0 8px"><span class="b-dot" style="background:${champTeam?.color||'#fff'}"></span> 🏆 ${w.champion}</h2>
+      </div>
+      <button class="x" onclick="closeWeekDetail()">×</button>
+    </div>
+    <div class="mbody">
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Teams &amp; rosters</label>
+      ${w.teams.map(t=>`
+        <div class="card" style="padding:14px 16px;margin:10px 0">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+            <span class="dot" style="width:18px;height:18px;border-radius:6px;background:${t.color}"></span>
+            <strong>${t.name}</strong>
+            <span class="pill" style="margin-left:auto">Seed #${t.seed} · Strength ${t.strength}</span>
+          </div>
+          <div class="grid">
+            ${(t.roster||[]).map(id=>{const p=POOL_BY_ID[id];if(!p)return'';return `<div class="pcard" onclick="openModal('${id}')">
+              <div class="top"><span class="dx">#${String(p.num).padStart(4,'0')}</span><span class="cost-badge">${p.cost}</span></div>
+              ${sprImg(p.pid,"spr")}
+              <div class="nm">${p.name}</div>
+              <div class="types">${p.types.map(ty=>`<span class="type" style="background:${TYPE_COLOR(ty)}">${ty}</span>`).join("")}</div>
+            </div>`}).join('')||'<div style="color:var(--muted)">No roster data saved for this week.</div>'}
+          </div>
+        </div>`).join('')}
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:16px;display:block">Match results</label>
+      <div style="margin-top:8px">
+        ${w.matches.length?w.matches.map(m=>{
+          const aTeam=w.teams.find(t=>t.name===m.a),bTeam=w.teams.find(t=>t.name===m.b);
+          const aWin=m.winner==='a',bWin=m.winner==='b';
+          return `<div class="rr-match" style="margin-bottom:8px">
+            <div class="b-slot ${aWin?'winner':'loser'}">
+              <span class="b-dot" style="background:${aTeam?.color||'#fff'}"></span>${m.a}
+              ${aWin?'<span style="margin-left:auto;font-size:11px;color:var(--good)">✓</span>':''}
+            </div>
+            <div class="rr-vs">vs</div>
+            <div class="b-slot ${bWin?'winner':'loser'}">
+              <span class="b-dot" style="background:${bTeam?.color||'#fff'}"></span>${m.b}
+              ${bWin?'<span style="margin-left:auto;font-size:11px;color:var(--good)">✓</span>':''}
+            </div>
+          </div>`;
+        }).join(''):'<div style="color:var(--muted)">No match data saved for this week.</div>'}
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" style="flex:1" onclick="exportSeasonWeek(${w.id})">⬇ Export this week</button>
+      <button class="btn ghost" onclick="closeWeekDetail()">Close</button>
+    </div>`;
+  document.getElementById('weekDetailScrim').classList.add('show');
+}
+function closeWeekDetail(){document.getElementById('weekDetailScrim').classList.remove('show');}
 
 function renderTournamentBracket(){
   const nR=T.rounds.length;
