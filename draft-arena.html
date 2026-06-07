@@ -92,6 +92,15 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
 .tier-untiered{background:var(--panel2);color:var(--muted);border-color:var(--line2)}
 .tier-nfe{background:#607d8b;color:#fff;border-color:#455a64}
 .tier-ag{background:#212121;color:#fff;border-color:#000}
+/* Letter-grade power estimates (S/A/B/C/D/F) shown for Pokémon with no official Smogon
+   tier — dashed border + ° suffix mark them at a glance as estimates, not real rankings */
+.tier-s{background:#e91e8c;color:#fff;border-color:#c2185b}
+.tier-a{background:#ff9800;color:#1a1300;border-color:#f57c00}
+.tier-b{background:#ffc107;color:#1a1300;border-color:#ffa000}
+.tier-c{background:#8bc34a;color:#1a1300;border-color:#689f38}
+.tier-d{background:#03a9f4;color:#fff;border-color:#0288d1}
+.tier-f{background:#607d8b;color:#fff;border-color:#455a64}
+.tier-badge.tier-est{border-style:dashed;opacity:.82}
 .build-badge{display:inline-block;font-size:9px;padding:1px 6px;border-radius:4px;
   background:rgba(255,210,63,.1);color:var(--accent);border:1px solid rgba(255,210,63,.22);
   font-weight:700;text-transform:uppercase;letter-spacing:0.5px;vertical-align:middle;margin-left:4px;white-space:nowrap}
@@ -792,11 +801,10 @@ async function initSmogonTiers(){
   let changed=false;
   POOL.forEach(p=>{
     const t=tierMap[p.name]||tierMap[norm(p.name)];
-    const newBuild=!!t;
-    const newTier=t||p.tier;
-    if(p.hasBuild!==newBuild||p.tier!==newTier){
-      p.hasBuild=newBuild;p.tier=newTier;
-      POOL_BY_ID[p.id].hasBuild=newBuild;POOL_BY_ID[p.id].tier=newTier;
+    if(!t)return; // keep the estimated letter grade — no official Smogon tier found
+    if(!p.hasBuild||p.tier!==t||p.tierEstimated){
+      p.hasBuild=true;p.tier=t;p.tierEstimated=false;
+      POOL_BY_ID[p.id].hasBuild=true;POOL_BY_ID[p.id].tier=t;POOL_BY_ID[p.id].tierEstimated=false;
       changed=true;
     }
   });
@@ -809,14 +817,41 @@ const getTierDesc=tier=>{
     'OU':'Overused — top competitive tier','UU':'Underused — strong but less common',
     'RU':'Rarely Used — viable options','NU':'Never Used — niche picks',
     'PU':'Poorly Used — situational','NFE':'Not Fully Evolved — Eviolite users',
-    'Untiered':'Not competitively ranked'};
+    'Untiered':'Not competitively ranked',
+    'S':'Estimated S-tier — top-end power (no official Smogon ranking)',
+    'A':'Estimated A-tier — strong pick (no official Smogon ranking)',
+    'B':'Estimated B-tier — solid mid-tier (no official Smogon ranking)',
+    'C':'Estimated C-tier — average power (no official Smogon ranking)',
+    'D':'Estimated D-tier — below-average (no official Smogon ranking)',
+    'F':'Estimated F-tier — weakest picks (no official Smogon ranking)'};
   return d[tier]||'';
 };
-// Tier ranking for sorting
+// Tier ranking for sorting — letter-grade estimates are interleaved between the
+// real Smogon tiers they roughly correspond to in power level
 const tierRank=tier=>{
-  const ranks={'AG':-1,'Uber':0,'OU':1,'UU':2,'RU':3,'NU':4,'PU':5,'NFE':6,'Untiered':7};
+  const ranks={'AG':-1,'Uber':0,'S':0.5,'OU':1,'A':1.5,'UU':2,'B':2.5,'RU':3,'C':3.5,
+    'NU':4,'D':4.5,'PU':5,'F':5.5,'NFE':6,'Untiered':7};
   return ranks[tier]??99;
 };
+// Letter-grade power estimate (S/A/B/C/D/F) for Pokémon with no official Smogon tier —
+// derived from the researched draft cost, on the same 1-20 scale as the rest of the pool
+function estimateTierGrade(cost){
+  if(cost>=17)return'S';
+  if(cost>=13)return'A';
+  if(cost>=9)return'B';
+  if(cost>=6)return'C';
+  if(cost>=3)return'D';
+  return'F';
+}
+// Shared tier-badge markup — letter-grade estimates get a dashed border, a ° suffix,
+// and a tooltip explaining they're rough power estimates rather than official Smogon tiers
+function _tierBadgeHtml(p,id){
+  const est=p.tierEstimated;
+  const cls=`tier-badge tier-${p.tier.toLowerCase()}${est?' tier-est':''}`;
+  const title=est?` title="Estimated power tier — ${p.name} has no official Smogon ranking, this is a rough ${p.tier}-tier guess based on its draft cost"`:'';
+  const idAttr=id?` id="${id}"`:'';
+  return`<span${idAttr} class="${cls}"${title}>${p.tier}${est?'°':''}</span>`;
+}
 /* ============ TYPE CHART ============ */
 // Attacking type → defending types it hits for 2×
 const TYPE_SE={
@@ -965,7 +1000,7 @@ POOL=POOL.map(p=>({
   id:p.i,name:p.n,num:p.d,types:p.t,
   stats:{HP:p.s[0],Atk:p.s[1],Def:p.s[2],SpA:p.s[3],SpD:p.s[4],Spe:p.s[5]},
   bst:p.s.reduce((a,b)=>a+b,0),abilities:p.a,cost:p.c,pid:p.pid,champions:!!p.ch,
-  gen:p.gen||getGen(p.d),tier:p.tier||"Untiered",moves:p.moves||[]
+  gen:p.gen||getGen(p.d),tier:p.tier||estimateTierGrade(p.c),tierEstimated:!p.tier,moves:p.moves||[]
 }));
 const POOL_BY_ID=Object.fromEntries(POOL.map(p=>[p.id,p]));
 
@@ -1216,7 +1251,7 @@ function renderBoard(){
       <td>${sprImg(p.pid,"spr")}</td>
       <td><div class="cell-mon"><div><div class="nm">${p.name}</div><div class="dx">#${String(p.num).padStart(4,'0')}</div></div></div></td>
       <td><span class="gen-badge">Gen ${p.gen}</span></td>
-      <td><span class="tier-badge tier-${p.tier.toLowerCase()}">${p.tier}</span>${p.hasBuild?'<span class="build-badge">◆ Build</span>':''}</td>
+      <td>${_tierBadgeHtml(p)}${p.hasBuild?'<span class="build-badge">◆ Build</span>':''}</td>
       <td>${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join(" ")}</td>
       <td>${miniStats(p)}</td>
       <td class="mono" style="color:var(--muted)">${p.bst}</td>
@@ -1300,7 +1335,7 @@ function renderPickGrid(){
       ${sprImg(p.pid,"spr")}
       <div class="nm">${p.name}</div>
       <div class="types">${p.types.map(t=>`<span class="type" style="background:${TYPE_COLOR(t)}">${t}</span>`).join("")}</div>
-      <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center"><span class="tier-badge tier-${p.tier.toLowerCase()}">${p.tier}</span>${p.hasBuild?'<span class="build-badge">◆ Build</span>':''}</div>
+      <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">${_tierBadgeHtml(p)}${p.hasBuild?'<span class="build-badge">◆ Build</span>':''}</div>
       ${owner?`<div class="drafted-tag" style="font-size:11px">● ${owner.name}</div>`:
         unaffordable?`<div style="font-size:11px;color:var(--warn)">Over budget</div>`:
         infeasible?`<div style="font-size:11px;color:var(--accent2)">Roster can't be completed</div>`:''}
@@ -1400,8 +1435,8 @@ function openModal(id){
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Abilities</label>
       <div class="abil-list">${p.abilities.map(a=>`<span class="abil">${a}</span>`).join("")||'<span class="abil">—</span>'}</div>
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:14px">Competitive Tier</label>
-      <div style="margin-bottom:14px"><span id="modal-tier-badge" class="tier-badge tier-${p.tier.toLowerCase()}" style="font-size:13px">${p.tier}</span>
-        <span id="modal-tier-desc" style="font-size:12px;color:var(--muted);margin-left:8px">${getTierDesc(p.tier)}</span></div>
+      <div style="margin-bottom:14px"><span id="modal-tier-badge" class="tier-badge tier-${p.tier.toLowerCase()}${p.tierEstimated?' tier-est':''}" style="font-size:13px">${p.tier}${p.tierEstimated?'°':''}</span>
+        <span id="modal-tier-desc" style="font-size:12px;color:var(--muted);margin-left:8px">${getTierDesc(p.tier)}${p.tierEstimated?' · estimated from draft cost':''}</span></div>
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:14px">Meta Build</label>
       <div id="smogon-set-box" class="smogon-loading">Fetching Smogon set…</div>
     </div>
