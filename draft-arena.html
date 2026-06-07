@@ -240,6 +240,7 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
 /* Type filter chips */
 .type-chip{color:#0c0e16 !important;font-weight:700}
 .type-chip.on{box-shadow:0 0 0 2px var(--accent)}
+.tier-chip.on{box-shadow:0 0 0 2px var(--accent);background:var(--panel2)}
 
 /* ---------- hero / setup ---------- */
 .hero{display:grid;grid-template-columns:1.1fr .9fr;gap:26px;align-items:start;margin-bottom:10px}
@@ -357,7 +358,10 @@ h2{font-size:24px;letter-spacing:-.6px;font-weight:800;margin-bottom:4px}
 .statbars .track{height:11px;background:var(--bg2);border-radius:6px;overflow:hidden}
 .statbars .fill{height:100%;border-radius:6px;transition:width .5s cubic-bezier(.2,.8,.2,1)}
 .abil-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
-.abil{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:7px 12px;font-size:13px;font-weight:600}
+.abil{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:7px 12px;font-size:13px;font-weight:600;position:relative}
+.abil[data-tip]{cursor:help;border-bottom:1px dashed var(--muted)}
+.abil[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:0;bottom:calc(100% + 8px);width:max-content;max-width:260px;background:#11141f;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-size:12px;font-weight:500;line-height:1.4;color:var(--ink);box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:50;white-space:normal}
+.abil[data-tip]:hover::before{content:'';position:absolute;left:14px;bottom:calc(100% + 4px);border:5px solid transparent;border-top-color:#11141f;z-index:50}
 .modal-foot{padding:0 22px 22px;display:flex;gap:10px}
 
 .empty-state{text-align:center;padding:60px 20px;color:var(--muted)}
@@ -584,6 +588,23 @@ footer{max-width:1280px;margin:0 auto;padding:30px 22px;color:var(--faint);font-
         </div>
         <label class="pill"><input type="checkbox" id="hideTaken" checked onchange="renderPickGrid()" style="accent-color:var(--accent)"> Hide drafted</label>
       </div>
+      <div class="chiprow" id="draftSortChips" style="margin-top:10px">
+        <label style="font-size:11px;color:var(--muted);margin-right:4px">SORT:</label>
+        <button class="chip on" data-ds="cost" onclick="draftSort(this,'cost')">Cost <span class="sort-arrow">↓</span></button>
+        <button class="chip" data-ds="name" onclick="draftSort(this,'name')">A–Z <span class="sort-arrow">↓</span></button>
+        <button class="chip" data-ds="bst" onclick="draftSort(this,'bst')">BST <span class="sort-arrow">↓</span></button>
+        <button class="chip" data-ds="tier" onclick="draftSort(this,'tier')">Tier <span class="sort-arrow">↓</span></button>
+        <button class="btn sm ghost" onclick="toggleDraftTypeFilters()" style="margin-left:auto"><span id="draftTypeFilterIcon">🔽</span> Type filters</button>
+        <button class="btn sm ghost" onclick="toggleDraftTierFilters()"><span id="draftTierFilterIcon">🔽</span> Tier filters</button>
+      </div>
+      <div class="chiprow" id="draftTypeFilters" style="display:none;margin-top:10px;flex-wrap:wrap"></div>
+      <div class="chiprow" id="draftTierFilters" style="display:none;margin-top:10px;flex-wrap:wrap"></div>
+      <div class="chiprow" style="margin-top:10px;align-items:center">
+        <label style="font-size:11px;color:var(--muted);margin-right:4px">ABILITY:</label>
+        <input id="draftAbilityFilter" list="abilityList" placeholder="Type to filter by ability…" oninput="draftState.ability=this.value;renderPickGrid()" style="background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:7px 12px;font-size:13px;color:var(--ink);min-width:220px">
+        <datalist id="abilityList"></datalist>
+        <button class="chip" onclick="clearDraftAbilityFilter()">Clear</button>
+      </div>
       <div class="grid" id="pickGrid"></div>
     </div>
   </section>
@@ -745,6 +766,30 @@ function _smogonLoad(key){
   return SMOGON_CACHE[key];
 }
 function _preloadSmogon(){SMOGON_FMTS.forEach(f=>_smogonLoad(`gen9${f}`));}
+
+// Ability hover tooltips — parsed from Pokémon Showdown's canonical ability data file
+// (a JS module, not JSON, so we regex out each entry's name + shortDesc)
+const ABILITY_DESC={};
+async function _loadAbilityDescs(){
+  try{
+    const txt=await fetch('https://play.pokemonshowdown.com/data/abilities.js').then(r=>r.text());
+    const entryRe=/(\w+):\{((?:[^{}]|\{[^{}]*\})*)\}/g;
+    let m;
+    while((m=entryRe.exec(txt))){
+      const body=m[2];
+      const nameM=body.match(/name:"([^"]+)"/);
+      const shortM=body.match(/shortDesc:"((?:[^"\\]|\\.)*)"/);
+      const descM=body.match(/(?<!short)desc:"((?:[^"\\]|\\.)*)"/);
+      if(!nameM)continue;
+      const d=shortM?shortM[1]:(descM?descM[1]:null);
+      if(d)ABILITY_DESC[nameM[1]]=d.replace(/\\"/g,'"');
+    }
+    document.querySelectorAll('.abil[data-ability]').forEach(el=>{
+      const d=ABILITY_DESC[el.dataset.ability];
+      if(d)el.setAttribute('data-tip',d);
+    });
+  }catch(e){/* tooltips just won't populate — non-critical */}
+}
 
 async function fetchSmogonSet(name){
   const norm=s=>s.replace(/[♂♀]/g,'').replace(/\s+/g,'-');
@@ -1292,8 +1337,104 @@ function renderBoard(){
 }
 
 /* ============ RENDER: LIVE DRAFT ============ */
-let draftState={filter:"all"};
+let draftState={filter:"all",sort:"cost",sortDir:"desc",types:[],tier:null,ability:""};
 function draftFilter(btn,f){document.querySelectorAll("[data-df]").forEach(b=>b.classList.toggle("on",b===btn));draftState.filter=f;renderPickGrid();}
+function draftSort(btn,s){
+  document.querySelectorAll("#draftSortChips .chip[data-ds]").forEach(b=>{
+    b.classList.toggle("on",b===btn);
+    const arrow=b.querySelector(".sort-arrow");
+    if(arrow)arrow.textContent="↓";
+  });
+  if(draftState.sort===s){
+    draftState.sortDir=draftState.sortDir==="desc"?"asc":"desc";
+  }else{
+    draftState.sort=s;
+    draftState.sortDir="desc";
+  }
+  const arrow=btn.querySelector(".sort-arrow");
+  if(arrow)arrow.textContent=draftState.sortDir==="desc"?"↓":"↑";
+  renderPickGrid();
+}
+function toggleDraftTypeFilters(){
+  const el=document.getElementById("draftTypeFilters");
+  const isHidden=el.style.display==="none";
+  el.style.display=isHidden?"flex":"none";
+  document.getElementById("draftTypeFilterIcon").textContent=isHidden?"🔼":"🔽";
+}
+function toggleDraftTypeFilter(btn,type){
+  const i=draftState.types.indexOf(type);
+  if(i>-1){
+    draftState.types.splice(i,1);
+    btn.classList.remove("on");
+  }else{
+    if(draftState.types.length>=2){
+      const dropped=draftState.types.shift();
+      const old=document.querySelector(`#draftTypeFilters .type-chip[data-type="${dropped}"]`);
+      if(old)old.classList.remove("on");
+    }
+    draftState.types.push(type);
+    btn.classList.add("on");
+  }
+  renderPickGrid();
+}
+function clearDraftTypeFilter(){
+  document.querySelectorAll("#draftTypeFilters .type-chip").forEach(b=>b.classList.remove("on"));
+  draftState.types=[];
+  renderPickGrid();
+}
+function toggleDraftTierFilters(){
+  const el=document.getElementById("draftTierFilters");
+  const isHidden=el.style.display==="none";
+  el.style.display=isHidden?"flex":"none";
+  document.getElementById("draftTierFilterIcon").textContent=isHidden?"🔼":"🔽";
+}
+function toggleDraftTierFilter(btn,tier){
+  if(draftState.tier===tier){
+    clearDraftTierFilter();
+  }else{
+    document.querySelectorAll("#draftTierFilters .tier-chip").forEach(b=>b.classList.remove("on"));
+    btn.classList.add("on");
+    draftState.tier=tier;
+    renderPickGrid();
+  }
+}
+function clearDraftTierFilter(){
+  document.querySelectorAll("#draftTierFilters .tier-chip").forEach(b=>b.classList.remove("on"));
+  draftState.tier=null;
+  renderPickGrid();
+}
+function clearDraftAbilityFilter(){
+  const inp=document.getElementById("draftAbilityFilter");
+  if(inp)inp.value="";
+  draftState.ability="";
+  renderPickGrid();
+}
+// One-time build of the type/tier/ability filter UI (POOL-derived option lists)
+function _initDraftFilterUI(){
+  const typeBox=document.getElementById("draftTypeFilters");
+  if(typeBox&&!typeBox.dataset.built){
+    typeBox.innerHTML=`<label style="font-size:11px;color:var(--muted);margin-right:8px">FILTER BY TYPE (pick up to 2):</label>`+
+      ALL_TYPES.map(t=>`<button class="chip type-chip" data-type="${t}" style="background:${TYPE_COLOR(t)};font-size:10px;padding:4px 8px" onclick="toggleDraftTypeFilter(this,'${t}')">${t}</button>`).join("")+
+      `<button class="chip" onclick="clearDraftTypeFilter()">Clear</button>`;
+    typeBox.dataset.built="1";
+  }
+  const tierBox=document.getElementById("draftTierFilters");
+  if(tierBox&&!tierBox.dataset.built){
+    const order=['AG','Uber','S','OU','A','UU','B','RU','C','NU','D','PU','F','NFE','Untiered'];
+    const present=[...new Set(POOL.map(p=>p.tier))].sort((a,b)=>tierRank(a)-tierRank(b));
+    const tiers=order.filter(t=>present.includes(t));
+    tierBox.innerHTML=`<label style="font-size:11px;color:var(--muted);margin-right:8px">FILTER BY TIER:</label>`+
+      tiers.map(t=>`<button class="chip tier-chip" data-tier="${t}" onclick="toggleDraftTierFilter(this,'${t}')">${t}</button>`).join("")+
+      `<button class="chip" onclick="clearDraftTierFilter()">Clear</button>`;
+    tierBox.dataset.built="1";
+  }
+  const dl=document.getElementById("abilityList");
+  if(dl&&!dl.dataset.built){
+    const abilities=[...new Set(POOL.flatMap(p=>p.abilities))].sort();
+    dl.innerHTML=abilities.map(a=>`<option value="${a}">`).join("");
+    dl.dataset.built="1";
+  }
+}
 function renderDraft(){
   const live=S.started;
   document.getElementById("draftNotStarted").classList.toggle("hidden",live);
@@ -1328,9 +1469,11 @@ function renderTeamsStrip(){
   }).join("");
 }
 function renderPickGrid(){
+  _initDraftFilterUI();
   const ti=currentTeamIndex();
   const q=(document.getElementById("draftSearch").value||"").toLowerCase();
   const hideTaken=document.getElementById("hideTaken").checked;
+  const abilityQ=(draftState.ability||"").toLowerCase();
   const budget=ti!==null?S.teams[ti].budgetLeft:0;
   let rows=POOL.filter(p=>{
     if(q&&!p.name.toLowerCase().includes(q))return false;
@@ -1338,8 +1481,21 @@ function renderPickGrid(){
     if(hideTaken&&taken)return false;
     if(draftState.filter==="afford"&&(taken||p.cost>budget))return false;
     if(draftState.filter==="champ"&&!p.champions)return false;
+    if(draftState.types.length&&!draftState.types.every(t=>p.types.includes(t)))return false;
+    if(draftState.tier&&p.tier!==draftState.tier)return false;
+    if(abilityQ&&!p.abilities.some(a=>a.toLowerCase().includes(abilityQ)))return false;
     return true;
-  }).sort((a,b)=>b.cost-a.cost||a.name.localeCompare(b.name));
+  });
+  const sortKey=draftState.sort;
+  const dir=draftState.sortDir==="asc"?1:-1;
+  rows.sort((a,b)=>{
+    let cmp=0;
+    if(sortKey==="cost")cmp=(a.cost-b.cost)*dir;
+    else if(sortKey==="name")cmp=a.name.localeCompare(b.name)*dir;
+    else if(sortKey==="bst")cmp=(a.bst-b.bst)*dir;
+    else if(sortKey==="tier")cmp=(tierRank(a.tier)-tierRank(b.tier))*dir;
+    return cmp||a.name.localeCompare(b.name);
+  });
   const grid=document.getElementById("pickGrid");
   if(!rows.length){grid.innerHTML='<div class="empty-state">No Pokémon match.</div>';return;}
   // Pre-compute infeasibility: cheapest undrafted pick available
@@ -1462,7 +1618,7 @@ function openModal(id){
         <div class="row"><span class="lab" style="color:var(--ink)">BST</span><span class="val" style="color:var(--accent)">${p.bst}</span><div></div></div>
       </div>
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Abilities</label>
-      <div class="abil-list">${p.abilities.map(a=>`<span class="abil">${a}</span>`).join("")||'<span class="abil">—</span>'}</div>
+      <div class="abil-list">${p.abilities.map(a=>`<span class="abil" data-ability="${a}"${ABILITY_DESC[a]?` data-tip="${ABILITY_DESC[a].replace(/"/g,'&quot;')}"`:''}>${a}</span>`).join("")||'<span class="abil">—</span>'}</div>
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:14px">Competitive Tier</label>
       <div style="margin-bottom:14px"><span id="modal-tier-badge" class="tier-badge tier-${p.tier.toLowerCase()}${p.tierEstimated?' tier-est':''}" style="font-size:13px">${p.tier}${p.tierEstimated?'°':''}</span>
         <span id="modal-tier-desc" style="font-size:12px;color:var(--muted);margin-left:8px">${getTierDesc(p.tier)}${p.tierEstimated?' · estimated from draft cost':''}</span></div>
@@ -2378,6 +2534,7 @@ if(S.started&&!S.ended)go('draft');else go('home');
 // kick off Smogon tier data fetch; updates board tiers + build badges when ready
 _preloadSmogon();
 initSmogonTiers();
+_loadAbilityDescs();
 </script>
 </body>
 </html>
